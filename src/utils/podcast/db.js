@@ -47,14 +47,20 @@ export async function searchLocalEpisodes(term, limit = 30) {
     .toArray();
   const podIds = [...new Set(matched.map(e => e.podcastId))];
   const pods = await db.podcasts.bulkGet(podIds);
-  const titleMap = {};
+  const podMap = {};
   podIds.forEach((id, i) => {
-    if (pods[i]) titleMap[id] = pods[i].title;
+    if (pods[i]) podMap[id] = pods[i];
   });
-  return matched.map(e => ({
-    ...e,
-    podcastTitle: titleMap[e.podcastId] || '',
-  }));
+  // [B-63] join 节目封面 + 订阅状态（搜索单集卡片用：左侧显节目封面、状态点判订阅）
+  return matched.map(e => {
+    const pod = podMap[e.podcastId];
+    return {
+      ...e,
+      podcastTitle: (pod && pod.title) || '',
+      podcastCoverUrl: (pod && pod.coverUrl) || e.coverUrl || '',
+      podcastSubscribed: pod ? pod.subscribed !== false : false,
+    };
+  });
 }
 
 export function getPodcast(id) {

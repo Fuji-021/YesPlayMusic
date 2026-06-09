@@ -25,7 +25,7 @@
       </div>
     </section>
 
-    <!-- 本地：单集标题 -->
+    <!-- 本地：单集（标准单集卡片：节目封面 + 节目名·日期·时长(状态点) + 播放/更多 + 右键菜单） -->
     <section v-if="localEps.length" class="sp-section">
       <div class="sp-head">单集</div>
       <div class="ep-list">
@@ -34,12 +34,37 @@
           :key="ep.id"
           class="ep-row"
           @click="playEpisode(ep)"
+          @contextmenu.prevent="openMenu($event, ep)"
         >
-          <svg-icon icon-class="play-circle" class="ep-play" />
+          <!-- 左侧=节目封面(非单集封面，便于认出来源)；卡片整体已有动作反馈，封面不再单独加光晕 -->
+          <PodImage
+            class="ep-cover"
+            :src="ep.podcastCoverUrl"
+            @error="onImgErr"
+          />
           <div class="ep-meta">
             <div class="ep-t">{{ ep.title }}</div>
-            <div class="ep-s">{{ ep.podcastTitle }}</div>
+            <div class="ep-s">
+              <span class="ep-pod">{{ ep.podcastTitle }}</span>
+              <!-- 分隔点 call back 状态点：绿=已订阅 / 黄=听过 -->
+              <span class="ep-dot" :class="dotClass(ep)"></span>
+              <span>{{ formatDate(ep) }}</span>
+              <template v-if="ep.duration">
+                <span class="sep">·</span>
+                <span>{{ formatDuration(ep.duration) }}</span>
+              </template>
+            </div>
           </div>
+          <button class="ep-act" title="立即播放" @click.stop="playEpisode(ep)">
+            <svg-icon icon-class="play-circle" />
+          </button>
+          <button
+            class="ep-act"
+            title="更多"
+            @click.stop="openMenu($event, ep)"
+          >
+            <svg-icon icon-class="menu-dots-vertical" />
+          </button>
         </div>
       </div>
     </section>
@@ -56,6 +81,32 @@
         <DiscoverCard v-for="p in onlineItems" :key="p.id" :podcast="p" />
       </div>
     </section>
+
+    <!-- [B-63] 单集右键菜单（与其它页一致） -->
+    <div
+      v-if="menu.open"
+      ref="menu"
+      class="ctx-menu"
+      :style="{ left: menu.x + 'px', top: menu.y + 'px' }"
+      @click.stop
+    >
+      <div class="ctx-item" @click="onMenuPlay">
+        <svg-icon icon-class="play-circle" />
+        <span>立即播放</span>
+      </div>
+      <div class="ctx-item" @click="onMenuQueue">
+        <svg-icon icon-class="layer-plus" />
+        <span>加入播放列表</span>
+      </div>
+      <div class="ctx-item" @click="onMenuFav">
+        <svg-icon :icon-class="isFav(menu.target) ? 'heart-solid' : 'heart'" />
+        <span>{{ isFav(menu.target) ? '取消收藏' : '收藏' }}</span>
+      </div>
+      <div class="ctx-item" @click="onMenuGoPodcast">
+        <svg-icon icon-class="radio-alt" />
+        <span>进入节目</span>
+      </div>
+    </div>
   </div>
 </template>
 
@@ -63,6 +114,7 @@
 import { mapState } from 'vuex';
 import { searchPodcasts } from '@/utils/podcast/discover';
 import { searchLocalPodcasts, searchLocalEpisodes } from '@/utils/podcast/db';
+import { getListenStatsBulk } from '@/utils/podcast/listening';
 import DiscoverCard from '@/components/DiscoverCard.vue';
 import SvgIcon from '@/components/SvgIcon.vue';
 
@@ -76,7 +128,13 @@ export default {
       onlineItems: [],
       loadingOnline: false,
       errorOnline: '',
+      // [B-63] 单集右键菜单
+      menu: { open: false, x: 0, y: 0, target: null },
+      menuListener: null,
     };
+  },
+  beforeDestroy() {
+    this.closeMenu();
   },
   computed: {
     ...mapState(['player']),
@@ -103,6 +161,16 @@ export default {
           searchLocalEpisodes(kw).catch(() => []),
         ]);
         this.localPods = pods;
+        // [B-63] 标记每集"听过"状态（供状态点显黄色）
+        try {
+          const stats = await getListenStatsBulk(eps.map(e => e.id));
+          eps.forEach((e, i) => {
+            const s = stats[i];
+            e._listened = !!(s && (s.completed || (s.listenedSec || 0) > 0));
+          });
+        } catch (err) {
+          /* 忽略：拿不到统计不影响列表 */
+        }
         this.localEps = eps;
       } catch (e) {
         this.localPods = [];
@@ -133,6 +201,107 @@ export default {
     },
     onImgErr(e) {
       e.target.style.opacity = 0.15;
+    },
+    // [B-63] 状态点：黄=听过 / 绿=已订阅 / 默认灰
+    dotClass(ep) {
+      if (ep._listened) return 'listened';
+      if (ep.podcastSubscribed) return 'subbed';
+      return '';
+    },
+    formatDate(ep) {
+      const val = ep.pubDate || ep.pubTime;
+      if (!val) return '';
+      const d = new Date(val);
+      if (isNaN(d.getTime())) return '';
+      const m = d.getMonth() + 1;
+      const day = d.getDate();
+      return d.getFullYear() === new Date().getFullYear()
+        ? `${m}月${day}日`
+        : `${d.getFullYear()}年${m}月${day}日`;
+    },
+    formatDuration(sec) {
+      sec = Math.floor(Number(sec) || 0);
+      const h = Math.floor(sec / 3600);
+      const m = Math.floor((sec % 3600) / 60);
+      if (h > 0) return m > 0 ? `${h}时${m}分` : `${h}时`;
+      if (m > 0) return `${m}分钟`;
+      return `${sec}秒`;
+    },
+    isFav(ep) {
+      if (!ep) return false;
+      const ids =
+        (this.$store.state.podcastFavorites &&
+          this.$store.state.podcastFavorites.episodeIds) ||
+        [];
+      return ids.includes(ep.id);
+    },
+    openMenu(e, ep) {
+      const same =
+        this.menu.open && this.menu.target && this.menu.target.id === ep.id;
+      this.closeMenu();
+      if (same) return;
+      const w = 200;
+      const h = 190;
+      const x = Math.min(e.clientX, window.innerWidth - w - 10);
+      const y = Math.min(e.clientY, window.innerHeight - h - 10);
+      this.menu = { open: true, x, y, target: ep };
+      this.$nextTick(() => {
+        this.menuListener = ev => {
+          const root = this.$refs.menu;
+          if (root && !root.contains(ev.target)) this.closeMenu();
+        };
+        document.addEventListener('click', this.menuListener);
+      });
+    },
+    closeMenu() {
+      this.menu.open = false;
+      this.menu.target = null;
+      if (this.menuListener) {
+        document.removeEventListener('click', this.menuListener);
+        this.menuListener = null;
+      }
+    },
+    onMenuPlay() {
+      const it = this.menu.target;
+      this.closeMenu();
+      if (it) this.playEpisode(it);
+    },
+    onMenuQueue() {
+      const it = this.menu.target;
+      this.closeMenu();
+      if (!it) return;
+      this.$store.dispatch('enqueueEpisode', {
+        ...it,
+        podcastTitle: it.podcastTitle || '',
+      });
+      this.$store.dispatch('showToast', '已加入播放列表');
+    },
+    onMenuFav() {
+      const it = this.menu.target;
+      this.closeMenu();
+      if (!it) return;
+      const track = {
+        id: `pod:${it.id}`,
+        name: it.title,
+        al: {
+          id: 0,
+          name: it.podcastTitle || '',
+          picUrl: it.podcastCoverUrl || it.coverUrl || '',
+        },
+        dt: (it.duration || 0) * 1000,
+        podcastAudioUrl: it.audioUrl,
+        podcastEpisodeId: it.id,
+      };
+      this.$store.dispatch('togglePodcastFavorite', track);
+    },
+    onMenuGoPodcast() {
+      const it = this.menu.target;
+      this.closeMenu();
+      if (!it || !it.podcastId) return;
+      this.$router.push({
+        name: 'podcastDetail',
+        params: { feedUrlEncoded: encodeURIComponent(it.podcastId) },
+      });
     },
   },
 };
@@ -221,30 +390,34 @@ export default {
     white-space: nowrap;
   }
 }
-// 单集行
+// [B-63] 标准单集卡片：节目封面 + 标题 + 节目名·状态点·日期·时长 + 播放/更多
 .ep-list {
-  border-top: 1px solid var(--color-secondary-bg);
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
 }
 .ep-row {
   display: flex;
   align-items: center;
   gap: 12px;
-  padding: 12px 4px;
-  border-bottom: 1px solid var(--color-secondary-bg);
+  padding: 8px;
+  border-radius: 10px;
   cursor: pointer;
-  transition: 0.15s;
+  transition: background 0.15s;
   &:hover {
     background: var(--color-secondary-bg-for-transparent);
-    padding-left: 10px;
   }
-  .ep-play {
-    width: 22px;
-    height: 22px;
+  .ep-cover {
+    width: 48px;
+    height: 48px;
+    border-radius: 8px;
+    object-fit: cover;
     flex-shrink: 0;
-    color: var(--color-primary);
+    background: var(--color-secondary-bg);
   }
   .ep-meta {
-    overflow: hidden;
+    flex: 1;
+    min-width: 0;
   }
   .ep-t {
     font-size: 14px;
@@ -255,8 +428,88 @@ export default {
   }
   .ep-s {
     font-size: 12px;
+    opacity: 0.6;
+    margin-top: 3px;
+    display: flex;
+    align-items: center;
+    gap: 5px;
+    white-space: nowrap;
+    overflow: hidden;
+    .ep-pod {
+      min-width: 0;
+      max-width: 50%;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+    .sep {
+      opacity: 0.5;
+    }
+  }
+  // 状态点：call back 来源点设计（绿=已订阅 / 黄=听过 / 默认灰）
+  .ep-dot {
+    flex-shrink: 0;
+    width: 6px;
+    height: 6px;
+    border-radius: 50%;
+    background: var(--color-text);
+    opacity: 0.3;
+    &.subbed {
+      background: #27ae60;
+      opacity: 1;
+    }
+    &.listened {
+      background: #f1c40f;
+      opacity: 1;
+    }
+  }
+  // 常驻播放 + 更多
+  .ep-act {
+    flex-shrink: 0;
+    background: transparent;
+    color: var(--color-text);
     opacity: 0.55;
-    margin-top: 2px;
+    cursor: pointer;
+    padding: 5px;
+    border-radius: 50%;
+    display: inline-flex;
+    transition: opacity 0.15s, background 0.15s;
+    .svg-icon {
+      width: 20px;
+      height: 20px;
+    }
+    &:hover {
+      opacity: 1;
+      background: var(--color-secondary-bg-for-transparent);
+    }
+  }
+}
+// [B-63] 单集右键菜单（与详情页同款）
+.ctx-menu {
+  position: fixed;
+  z-index: 220;
+  background: var(--color-body-bg);
+  border-radius: 10px;
+  padding: 4px;
+  width: 180px;
+  box-shadow: 0 12px 32px rgba(0, 0, 0, 0.22),
+    0 0 0 1px var(--color-secondary-bg-for-transparent);
+}
+.ctx-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 9px 12px;
+  border-radius: 7px;
+  font-size: 13px;
+  cursor: pointer;
+  color: var(--color-text);
+  .svg-icon {
+    width: 16px;
+    height: 16px;
+    opacity: 0.8;
+  }
+  &:hover {
+    background: var(--color-secondary-bg-for-transparent);
   }
 }
 </style>
