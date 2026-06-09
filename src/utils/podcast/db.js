@@ -61,12 +61,13 @@ export function getPodcast(id) {
   return db.podcasts.get(id);
 }
 
-// [B-55] 取消订阅 = 软删：保留 podcasts 记录(置 subscribed:false)，删 episodes 省空间。
-//   保留记录是为了收听统计能 join 到节目名/封面（统计要含所有听过的节目，包括已取消订阅的）；
-//   "我的订阅"/发现页用 getSubscribedPodcasts 过滤掉 subscribed===false 的，所以它不会再显示在订阅里。
-//   重新订阅时 subscribeByRssUrl 会 put 覆盖回 subscribed:true 并重抓 episodes。
+// [B-55/B56-2] 取消订阅 = 软删：只把 podcasts 记录置 subscribed:false，**不删 episodes / 收听统计**。
+//   保留 podcasts + episodes 是为了：
+//     ① 收听统计 join 到节目名/封面（统计含所有听过的，包括已取消订阅的）；
+//     ② 已下载的离线单集 / 收听历史仍能 join 到单集元数据，正常显示与播放（修 B56-2）。
+//   "我的订阅"/发现页用 getSubscribedPodcasts 过滤 subscribed===false，所以它不显示在订阅里；
+//   重新订阅时 subscribeByRssUrl put 覆盖回 subscribed:true。（取消订阅频率低，保留数据量可控）
 export async function deletePodcast(id) {
-  await db.episodes.where('podcastId').equals(id).delete();
   await db.podcasts.update(id, { subscribed: false });
 }
 

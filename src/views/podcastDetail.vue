@@ -601,6 +601,11 @@ export default {
     async doUnsubscribe() {
       if (!this.podcast) return;
       await deletePodcast(this.podcast.id);
+      // [B56-1] 全局同步：发现页/二级页/搜索里同名节目实时回到"未订阅"（与另两个取消订阅入口一致）
+      this.$store.commit('removeSubscribedPodcast', {
+        feedUrl: this.podcast.id,
+        name: this.podcast.title,
+      });
       this.showConfirmUnsub = false;
       this.$store.dispatch('showToast', '已取消订阅');
       // 回订阅列表（用 replace 避免历史栈里残留已删除节目的页面）
