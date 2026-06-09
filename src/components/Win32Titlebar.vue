@@ -4,7 +4,7 @@
     <div class="title">{{ playerTitle }}</div>
     <div class="brand">
       <svg-icon class="brand-logo" icon-class="on-air-square" />
-      <span class="brand-sig">@Fujii</span>
+      <span class="brand-sig">@克劳德</span>
     </div>
     <div class="controls">
       <div
@@ -51,8 +51,12 @@ export default {
   computed: {
     ...mapState(['title']),
     // [A-27] 把"YesPlayMusic"替换为"PodPlayer"
+    // [DEV BUILD] 开发测试床品牌名 → "PodPlayer Dev"（master 真实实例仍为 "PodPlayer"）
     playerTitle() {
-      return (this.title || 'PodPlayer').replace(/YesPlayMusic/g, 'PodPlayer');
+      return (this.title || 'PodPlayer Dev').replace(
+        /YesPlayMusic/g,
+        'PodPlayer Dev'
+      );
     },
   },
   created() {
