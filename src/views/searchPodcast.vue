@@ -133,9 +133,6 @@ export default {
       menuListener: null,
     };
   },
-  beforeDestroy() {
-    this.closeMenu();
-  },
   computed: {
     ...mapState(['player']),
     keywords() {
@@ -149,6 +146,9 @@ export default {
         this.doSearch();
       },
     },
+  },
+  beforeDestroy() {
+    this.closeMenu();
   },
   methods: {
     async doSearch() {
