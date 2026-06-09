@@ -41,3 +41,8 @@ devenv.local.nix
 
 # pre-commit
 .pre-commit-config.yaml
+
+# 运行/构建日志（勿入库）
+*.log
+devbuild*.log
+devserve*.log
