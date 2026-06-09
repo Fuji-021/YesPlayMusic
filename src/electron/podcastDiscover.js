@@ -11,6 +11,7 @@ const UA =
 
 // 简单内存缓存：榜单每天才更新，缓存 6h 减少请求 + 离线兜底
 let hotCache = { ts: 0, items: null };
+let newCache = { ts: 0, items: null }; // [B-53] 新上线节目
 const HOT_TTL = 6 * 3600 * 1000;
 // Apple id → feedUrl 缓存（基本不变，长期缓存）
 const feedCache = new Map();
@@ -42,6 +43,35 @@ export function registerPodcastDiscoverIpc() {
       // 失败时如果有旧缓存，降级返回旧的
       if (hotCache.items) {
         return { ok: true, items: hotCache.items, stale: true };
+      }
+      return { ok: false, error: String((err && err.message) || err) };
+    }
+  });
+
+  // [B-53] 抓"新上线"节目榜单（xyzrank /api/new-podcasts，结构同热门榜，带 links）
+  ipcMain.handle('podcast:fetchNew', async (_e, force) => {
+    if (!force && newCache.items && Date.now() - newCache.ts < HOT_TTL) {
+      return { ok: true, items: newCache.items, cached: true };
+    }
+    try {
+      const res = await axios.get('https://xyzrank.com/api/new-podcasts', {
+        headers: {
+          'User-Agent': UA,
+          Referer: 'https://xyzrank.com/',
+          Accept: 'application/json',
+        },
+        timeout: 20000,
+        proxy: false,
+        validateStatus: s => s >= 200 && s < 300,
+      });
+      const items = (res.data && res.data.items) || [];
+      if (items.length) {
+        newCache = { ts: Date.now(), items };
+      }
+      return { ok: true, items };
+    } catch (err) {
+      if (newCache.items) {
+        return { ok: true, items: newCache.items, stale: true };
       }
       return { ok: false, error: String((err && err.message) || err) };
     }

@@ -128,6 +128,7 @@ import SvgIcon from '@/components/SvgIcon.vue';
 import DiscoverCard from '@/components/DiscoverCard.vue';
 import {
   fetchHotPodcasts,
+  fetchNewPodcasts,
   splitSections,
   reshuffleSection,
   preferredGenresFrom,
@@ -157,6 +158,7 @@ export default {
       discoverError: '',
       sections: { hot: [], treasure: [], forYou: [] },
       allItems: [], // [B-42] 全量榜单，供二级页 / 再推荐复用
+      newItems: [], // [B-53] 新上线节目（xyzrank /api/new-podcasts）
       // [B-44] 每行列数（随窗口自适应），每板块固定显示 2*cols 项
       cols: 2,
       // [B-47] "再推荐一次"自增序号：变化触发 forYou 网格淡入过渡
@@ -188,6 +190,14 @@ export default {
           key: 'hot',
           title: '热门排行',
           items: this.noBlocked(this.sections.hot),
+          actionText: '探索更多',
+          actionIcon: 'arrow-right',
+          actionType: 'page',
+        },
+        {
+          key: 'new',
+          title: '新上线',
+          items: this.noBlocked(this.newItems),
           actionText: '探索更多',
           actionIcon: 'arrow-right',
           actionType: 'page',
@@ -252,7 +262,11 @@ export default {
       this.discoverError = '';
       this.discoverLoading = true;
       try {
-        const items = await fetchHotPodcasts(force);
+        // [B-53] 并行抓热门 + 新上线（new 失败不影响热门）
+        const [items, newItems] = await Promise.all([
+          fetchHotPodcasts(force),
+          fetchNewPodcasts(force).catch(() => []),
+        ]);
         this.allItems = items;
         // [B-43] 从 Dexie 灌入已订阅映射（卡片绿勾回显 + 寻宝/推荐去重）
         const subMap = await this.loadSubscribedMap();
@@ -261,6 +275,10 @@ export default {
         // [B-43] 反推偏好分类，"为你推荐"按分类加权
         this.preferredGenres = preferredGenresFrom(items, subbedNames);
         this.sections = splitSections(items, subbedNames, this.preferredGenres);
+        // [B-53] 新上线：排除已订阅，保持新鲜
+        this.newItems = (newItems || []).filter(
+          p => !subbedNames.has((p.name || '').trim())
+        );
       } catch (e) {
         this.discoverError = String((e && e.message) || e) || '加载失败';
       } finally {

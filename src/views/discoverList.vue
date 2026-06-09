@@ -21,7 +21,11 @@
 </template>
 
 <script>
-import { fetchHotPodcasts, getSectionFull } from '@/utils/podcast/discover';
+import {
+  fetchHotPodcasts,
+  fetchNewPodcasts,
+  getSectionFull,
+} from '@/utils/podcast/discover';
 import { getSubscribedPodcasts } from '@/utils/podcast/db';
 import SvgIcon from '@/components/SvgIcon.vue';
 import DiscoverCard from '@/components/DiscoverCard.vue';
@@ -41,7 +45,9 @@ export default {
       return this.$route.params.type || 'hot';
     },
     title() {
-      return this.type === 'treasure' ? '播客寻宝' : '热门排行';
+      if (this.type === 'treasure') return '播客寻宝';
+      if (this.type === 'new') return '新上线';
+      return '热门排行';
     },
     // [B-47 第5点] 过滤掉已屏蔽节目（与首页一致，响应式）
     visibleItems() {
@@ -69,7 +75,10 @@ export default {
       this.error = '';
       this.loading = true;
       try {
-        const all = await fetchHotPodcasts(force);
+        const all =
+          this.type === 'new'
+            ? await fetchNewPodcasts(force)
+            : await fetchHotPodcasts(force);
         // [B-43/B-44] 灌入已订阅映射（卡片绿勾回显 + 去重），全局共用同一 store
         const subMap = await this.loadSubscribedMap();
         this.$store.commit('setSubscribedPodcastMap', subMap);

@@ -16,6 +16,17 @@ export async function fetchHotPodcasts(force = false) {
   return res.items || [];
 }
 
+// [B-53] 取"新上线"节目榜单（xyzrank /api/new-podcasts，结构同热门）
+export async function fetchNewPodcasts(force = false) {
+  if (!ipcRenderer) {
+    throw new Error('发现功能仅在桌面版可用');
+  }
+  const res = await ipcRenderer.invoke('podcast:fetchNew', force);
+  if (!res || !res.ok)
+    throw new Error((res && res.error) || '获取新上线榜单失败');
+  return res.items || [];
+}
+
 // 从 podcast.links 里找 Apple 链接并提取 id（形如 .../id1582119137）
 export function appleIdOf(podcast) {
   const apple = (podcast.links || []).find(l => l && l.name === 'apple');
@@ -152,5 +163,6 @@ export function reshuffleSection(items, type, excludeNames, preferredGenres) {
 export function getSectionFull(items, type, excludeNames) {
   if (!items || !items.length) return [];
   if (type === 'treasure') return excludeSubbed(items.slice(8), excludeNames);
+  if (type === 'new') return excludeSubbed(items, excludeNames); // 新上线全部(排除已订阅)
   return items.slice();
 }
