@@ -148,9 +148,9 @@
         <div class="title">
           {{ p.title || '(无标题)'
           }}<span
-            class="src-dot"
-            :class="sourceClass(p)"
-            :title="p.source === 'discover' ? '来自首页发现' : '手动链接导入'"
+            v-if="p.source === 'discover'"
+            class="src-dot dot-discover"
+            title="来自首页发现页订阅"
           ></span>
         </div>
         <div class="author">{{ p.author || '' }}</div>
@@ -363,10 +363,6 @@ export default {
     this.loadPodcasts();
   },
   methods: {
-    // [B-48 第1点] 来源点：discover=黄(首页云端) / 其它含旧数据=绿(手动链接导入)
-    sourceClass(p) {
-      return p && p.source === 'discover' ? 'dot-discover' : 'dot-manual';
-    },
     // [B-35] 该节目下载进度（0-100），无下载任务返 -1。
     //   episodeId 形如 `${feedUrl}::${guid}`，p.id = feedUrl，按前缀聚合属于该节目的下载中单集。
     podcastDlProgress(p) {

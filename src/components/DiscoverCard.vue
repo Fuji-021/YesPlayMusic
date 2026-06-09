@@ -44,7 +44,11 @@
         </div>
       </div>
     </div>
-    <div class="card-name">{{ podcast.name }}</div>
+    <div class="card-name">
+      <span class="cn-text">{{ podcast.name }}</span>
+      <!-- [B-49] 已订阅绿点（少数派标记；封面仍零常驻状态，点在名字旁不在封面上） -->
+      <span v-if="subbed" class="src-dot" title="已订阅"></span>
+    </div>
     <div class="card-meta">
       {{ podcast.primaryGenreName }} · {{ fmtCount(podcast.avgPlayCount) }}
     </div>
@@ -392,9 +396,23 @@ export default {
   margin-top: 10px;
   font-size: 14px;
   font-weight: 600;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  display: flex;
+  align-items: center;
+  .cn-text {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    min-width: 0; // 允许收缩，名字长时省略号、绿点仍可见
+  }
+}
+// [B-49] 已订阅绿点：紧挨名字、句号大小、稀疏（不被名字省略号裁掉）
+.src-dot {
+  flex-shrink: 0;
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  margin-left: 5px;
+  background: #27ae60;
 }
 .card-meta {
   margin-top: 3px;
