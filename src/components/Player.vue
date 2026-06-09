@@ -277,6 +277,7 @@
                       :interval="1"
                       :drag-on-click="true"
                       :duration="0"
+                      :lazy="true"
                       tooltip="none"
                       :dot-size="12"
                       @change="onSleepSlide"
@@ -1562,14 +1563,17 @@ export default {
   // [B-63改] 睡眠滑条：已填充段用蓝色(深色模式可见，原色发黑看不见)，轨道淡灰，把手蓝色。
   //   ::v-deep 仅作用于睡眠滑条，不影响播放/音量滑条。
   ::v-deep .vue-slider-rail {
-    background-color: var(--color-secondary-bg);
+    // [B-64] 关闭态(值=0)没有 process 填充 → rail 必须自身明显；用中性灰，深/浅色都看得见
+    background-color: rgba(128, 128, 128, 0.4);
   }
   ::v-deep .vue-slider-process {
     background-color: var(--color-primary);
   }
   ::v-deep .vue-slider-dot-handle {
+    // [B-64] 把手常显(全局默认 hover 才显)，让用户一眼看到可拖的蓝色圆点
+    visibility: visible;
     background-color: var(--color-primary);
-    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.3);
+    box-shadow: 0 1px 4px rgba(0, 0, 0, 0.35);
   }
   // [B-63改] "本集结束"标记：用当前封面主色调(inline sleepMarkerColor 绑定)，
   //   区别于蓝色进度条 → 记忆点，与"定位到本集结束"呼应。
