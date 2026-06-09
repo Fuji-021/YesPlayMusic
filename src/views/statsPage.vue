@@ -38,9 +38,9 @@
 
     <div v-if="!visibleList.length" class="empty">这段时间还没有收听记录</div>
 
-    <!-- [B-54] 时长矩形条：transition-group 实现进入时"重排+加长+整体缩放"的丝滑动画。
-         bar 宽度=相对最长条的比例(天然不超边界，最长条变长则其它整体变细=俯视上升)。 -->
-    <transition-group name="stat" tag="div" class="stat-list">
+    <!-- [B-54/B-61] 时长矩形条统一动画：宽度由响应式 _w 驱动，走同一条 CSS width 过渡。
+         留存条伸缩(俯视缩小)+FLIP 移动；新增条从 0 长出(从左长出来)+淡入；离开条回缩到 0+淡出。 -->
+    <transition-group name="stat" tag="div" class="stat-list" @leave="onLeave">
       <div
         v-for="item in visibleList"
         :key="item.podcastId"
@@ -49,7 +49,7 @@
       >
         <div
           class="bar"
-          :style="{ width: barWidth(item), background: barColor(item) }"
+          :style="{ width: item._w + '%', background: barColor(item) }"
         >
           <img class="thumb" :src="item.coverUrl" @error="onCoverError" />
         </div>
@@ -102,9 +102,6 @@ export default {
     totalMins() {
       return Math.floor((this.totalWall % 3600) / 60);
     },
-    maxWall() {
-      return this.visibleList.length ? this.visibleList[0].wallSec : 1;
-    },
     // [B-47 第5点] 统计页不显示已屏蔽节目（取消屏蔽后恢复；数据不删，仅不显示）
     blockedNames() {
       return new Set(
@@ -140,34 +137,37 @@ export default {
         this.range === 'week' ? 7 : 'all'
       );
       this.rangeTotal = totalWall;
-      this.list = list;
-      this.extractColors();
+      this.animateTo(list);
       this.saveSnapshot(this.range, list);
     },
-    // [B-54] 进入页面的动画流程：先用上次快照当起点，再切到本次新数据，
-    //   transition-group 自动播"重排(move) + 进度条加长/整体缩放(width)"，只跑一次。
+    // [B-54/B-61] 进入页面的动画流程：先用上次快照当起点(铺满各自宽度)，再平滑过渡到本次新数据。
     async enterWithAnimation() {
       this.pickMood();
-      // 1) 先显示上次快照（旧排序/旧宽度）作为动画起点
-      const snap = this.loadSnapshot(this.range);
-      if (snap && snap.length) this.list = snap;
-      // 2) 取总时长 + 本次新数据
       await this.loadTotal();
+      // 1) 起点 = 上次快照（按其自身最长条比例铺满宽度）；无快照则空（首次进入全部从 0 长出）
+      const snap = this.loadSnapshot(this.range);
+      if (snap && snap.length) {
+        const sMax = snap[0].wallSec || 1;
+        this.list = snap.map(it => {
+          const w = this.barTargetPct(it, sMax);
+          return { ...it, _target: w, _w: w };
+        });
+      } else {
+        this.list = [];
+      }
+      await this.$nextTick();
+      // 2) 取本次新数据 → 平滑过渡（留存条伸缩+移动，新增条从左长出，离开条回缩）
       const fresh = await getListenStatsByPodcast(
         this.range === 'week' ? 7 : 'all'
       );
       this.rangeTotal = fresh.totalWall;
-      // 3) 下一帧+短延迟把 list 换成新数据（让旧状态先上屏，动画才有起点 → 重排/加长）
-      await this.$nextTick();
-      setTimeout(() => {
-        this.list = fresh.list;
-        this.extractColors();
-        this.saveSnapshot(this.range, fresh.list);
-      }, 90);
+      this.animateTo(fresh.list);
+      this.saveSnapshot(this.range, fresh.list);
     },
     // [B-39] 异步提取每个节目封面主色填充矩形条（不阻塞渲染，到了再刷新该行）
     extractColors() {
       this.list.forEach((item, i) => {
+        if (item.colorHsl) return; // [B-61] 已沿用上次的色 → 跳过，避免重排时闪色
         getCoverColor(item.coverUrl).then(hsl => {
           if (
             hsl &&
@@ -178,6 +178,54 @@ export default {
           }
         });
       });
+    },
+    // [B-61] 单条目标宽度%（相对最长条；最长占 60% 留出右侧给名字，最短保底 7% 放得下封面）
+    barTargetPct(item, maxWall) {
+      const pct = (item.wallSec / Math.max(1, maxWall)) * 60;
+      return Math.max(7, pct);
+    },
+    // [B-61] 把当前 list 平滑过渡到 freshList（统一动画核心）：
+    //   留存条：保持当前宽 → 下一帧过渡到新宽(最长条变长→其余整体变细=俯视抬高缩小) + FLIP 移动
+    //   新增条：宽度从 0 长出(从左边长出来) + 淡入
+    //   离开条：宽度回缩到 0 + 淡出(见 onLeave)
+    animateTo(freshList) {
+      const maxWall = freshList.length ? freshList[0].wallSec : 1;
+      const prev = {};
+      this.list.forEach(it => {
+        prev[it.podcastId] = it;
+      });
+      const next = freshList.map(it => {
+        const p = prev[it.podcastId];
+        return {
+          ...it,
+          _target: this.barTargetPct(it, maxWall),
+          _w: p ? p._w : 0, // 留存：沿用当前宽(随后过渡到新宽)；新增：从 0 起
+          colorHsl: p ? p.colorHsl : undefined, // 留存沿用色，避免闪色
+        };
+      });
+      this.list = next;
+      this.extractColors();
+      // 双 rAF：先让"起点宽度"(新条 0 / 留存条旧值)真正绘制一帧，再统一过渡到目标宽 → 必触发 width 过渡
+      this.$nextTick(() => {
+        requestAnimationFrame(() => {
+          requestAnimationFrame(() => {
+            this.list.forEach(it => {
+              it._w = it._target;
+            });
+          });
+        });
+      });
+    },
+    // [B-61] 离开动画：时间条回缩到 0 + 整行淡出（与"从左长出"镜像；position:absolute 让留存条 FLIP 补位）
+    onLeave(el, done) {
+      const bar = el.querySelector('.bar');
+      el.style.transition = 'opacity 0.45s ease';
+      el.style.opacity = '0';
+      if (bar) {
+        bar.style.transition = 'width 0.45s cubic-bezier(0.22, 1, 0.36, 1)';
+        bar.style.width = '0%';
+      }
+      setTimeout(done, 470);
     },
     // [B-54] 上次进入时的排行快照（localStorage，按 range 分键），作为下次动画起点
     loadSnapshot(range) {
@@ -210,11 +258,6 @@ export default {
       if (this.range === r) return;
       this.range = r;
       await this.loadRange();
-    },
-    // 最长占 60%，留出右侧给节目名；最短保底放得下封面
-    barWidth(item) {
-      const pct = (item.wallSec / Math.max(1, this.maxWall)) * 60;
-      return Math.max(7, pct) + '%';
     },
     barColor(item) {
       // [B-41] 封面主色 → 低饱和纯色 + 半透明（透明度低于实色封面，参考小宇宙：
@@ -360,21 +403,17 @@ export default {
 .stat-move {
   transition: transform 0.65s cubic-bezier(0.22, 1, 0.36, 1);
 }
+/* [B-61] 新增条：淡入（时间条"从左长出"由 .bar 的 width 过渡驱动，0→目标宽） */
 .stat-enter-active {
-  transition: opacity 0.5s ease, transform 0.5s ease;
+  transition: opacity 0.55s ease;
 }
 .stat-enter {
   opacity: 0;
-  transform: translateY(14px);
 }
+/* [B-61] 离开条：position:absolute 让留存条 FLIP 上移补位；回缩+淡出在 onLeave(JS) 里做 */
 .stat-leave-active {
-  transition: opacity 0.4s ease, transform 0.4s ease;
   position: absolute;
   width: 100%;
-}
-.stat-leave-to {
-  opacity: 0;
-  transform: translateX(-24px);
 }
 .stat-row {
   display: flex;
@@ -393,8 +432,10 @@ export default {
     display: flex;
     align-items: center;
     justify-content: flex-end;
-    min-width: 48px;
-    // [B-54] 进度条加长 / 整体缩放(俯视上升) 的丝滑过渡
+    // [B-61] min-width:0 → 新条能从 0 长出、离开条能回缩到 0；封面 thumb 随右端从左侧带出。
+    //   静止态最窄=barTargetPct 的 7% 兜底(常规窗口 ≈ 40px+ 放得下封面)。
+    min-width: 0;
+    // [B-54/B-61] 进度条伸缩(俯视抬高整体缩小) + 从左长出 的丝滑过渡，与 .stat-move 同缓动
     transition: width 0.6s cubic-bezier(0.22, 1, 0.36, 1);
   }
   .thumb {
