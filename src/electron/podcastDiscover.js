@@ -72,4 +72,36 @@ export function registerPodcastDiscoverIpc() {
       return { ok: false, error: String((err && err.message) || err) };
     }
   });
+
+  // [B-52] 在线搜索播客（iTunes Search API，中文区，直接返回 feedUrl → 可一键订阅/预览）
+  ipcMain.handle('podcast:search', async (_e, term) => {
+    const q = String(term || '').trim();
+    if (!q) return { ok: true, items: [] };
+    try {
+      const res = await axios.get('https://itunes.apple.com/search', {
+        params: { term: q, entity: 'podcast', country: 'cn', limit: 30 },
+        headers: { 'User-Agent': UA },
+        timeout: 15000,
+        proxy: false,
+        validateStatus: s => s >= 200 && s < 300,
+      });
+      const results = (res.data && res.data.results) || [];
+      // 映射成发现页卡片(DiscoverCard)能直接用的结构；带 feedUrl 可跳过 resolveFeed
+      const items = results
+        .filter(r => r && r.feedUrl)
+        .map(r => ({
+          id: r.feedUrl,
+          name: r.collectionName || r.trackName || '',
+          author: r.artistName || '',
+          logoURL: r.artworkUrl600 || r.artworkUrl100 || r.artworkUrl60 || '',
+          primaryGenreName: r.primaryGenreName || '',
+          avgPlayCount: 0,
+          feedUrl: r.feedUrl,
+          trackCount: r.trackCount || 0,
+        }));
+      return { ok: true, items };
+    } catch (err) {
+      return { ok: false, error: String((err && err.message) || err) };
+    }
+  });
 }

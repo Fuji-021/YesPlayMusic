@@ -31,8 +31,8 @@
         >
       </div>
       <div class="right-part">
-        <!-- [播客改造] 暂时屏蔽顶栏搜索框（源码保留），后续可改为播客本地搜索 -->
-        <div v-if="false" class="search-box">
+        <!-- [B-52] 播客搜索框：本地(我的订阅/单集) + 在线(iTunes)，回车跳搜索页 -->
+        <div class="search-box">
           <div class="container" :class="{ active: inputFocus }">
             <svg-icon icon-class="search" />
             <div class="input">
@@ -40,7 +40,7 @@
                 ref="searchInput"
                 v-model="keywords"
                 type="search"
-                :placeholder="inputFocus ? '' : $t('nav.search')"
+                :placeholder="inputFocus ? '' : '搜索播客'"
                 @keydown.enter="doSearch"
                 @focus="inputFocus = true"
                 @blur="inputFocus = false"
@@ -196,17 +196,16 @@ export default {
       else this.$router.go(1);
     },
     doSearch() {
-      if (!this.keywords) return;
+      const kw = (this.keywords || '').trim();
+      if (!kw) return;
       if (
-        this.$route.name === 'search' &&
-        this.$route.params.keywords === this.keywords
+        this.$route.name === 'searchPodcast' &&
+        this.$route.params.keywords === kw
       ) {
         return;
       }
-      this.$router.push({
-        name: 'search',
-        params: { keywords: this.keywords },
-      });
+      // [B-52] 跳播客搜索结果页（本地 + 在线）
+      this.$router.push({ name: 'searchPodcast', params: { keywords: kw } });
     },
     showUserProfileMenu(e) {
       this.$refs.userProfileMenu.openMenu(e);
@@ -384,6 +383,13 @@ nav.has-custom-titlebar {
     background: var(--color-secondary-bg-for-transparent);
     border-radius: 8px;
     width: 200px;
+    // [B-52] 轻反馈 + 聚焦缩放动画
+    transition: transform 0.18s ease, background 0.18s ease;
+    transform-origin: right center;
+    &:hover {
+      background: var(--color-primary-bg-for-transparent);
+      transform: scale(1.02);
+    }
   }
 
   .svg-icon {
@@ -409,6 +415,7 @@ nav.has-custom-titlebar {
 
   .active {
     background: var(--color-primary-bg-for-transparent);
+    transform: scale(1.03);
     input,
     .svg-icon {
       opacity: 1;

@@ -11,6 +11,55 @@ const ipcRenderer = window.require
 
 let _registered = false;
 
+// [B-52] 下载并发上限（默认 3；后续可由设置"同时下载集数 1-10"覆盖）
+let MAX_CONCURRENT = 3;
+const _activeSet = new Set(); // 正在下载的 episodeId
+const _waitQueue = []; // 排队等待的 episode 对象
+
+// [B-52] 接口预留：设置层调用以覆盖并发上限（1=队列依次下载，>1=并发）。范围 1~10。
+export function setDownloadConcurrency(n) {
+  const v = Number(n);
+  if (v >= 1 && v <= 10) MAX_CONCURRENT = Math.floor(v);
+}
+export function getDownloadConcurrency() {
+  return MAX_CONCURRENT;
+}
+
+// 实际向主进程发起下载（不含并发判断）
+async function _doStart(episode) {
+  store.commit('setDownloadProgress', {
+    episodeId: episode.id,
+    bytesDone: 0,
+    bytesTotal: 0,
+    status: 'downloading',
+  });
+  const idx = (episode.id || '').indexOf('::');
+  const feedUrl = idx > 0 ? episode.id.slice(0, idx) : '';
+  const guid = idx > 0 ? episode.id.slice(idx + 2) : episode.guid || episode.id;
+  const res = await ipcRenderer.invoke('podcast:download:start', {
+    episodeId: episode.id,
+    feedUrl,
+    guid,
+    audioUrl: episode.audioUrl,
+  });
+  if (!res || !res.ok) {
+    _activeSet.delete(episode.id);
+    store.commit('clearDownloadProgress', episode.id);
+    store.dispatch('showToast', '下载启动失败：' + ((res && res.error) || ''));
+    _pump();
+  }
+  return res || { ok: false };
+}
+
+// 槽位空出时，从等待队列拉起下一个
+function _pump() {
+  while (_activeSet.size < MAX_CONCURRENT && _waitQueue.length) {
+    const ep = _waitQueue.shift();
+    _activeSet.add(ep.id);
+    _doStart(ep);
+  }
+}
+
 // 在 app 启动时调用一次，把进度/完成/失败的 IPC 事件接到 store
 export function registerDownloadListeners() {
   if (_registered || !ipcRenderer) return;
@@ -48,11 +97,17 @@ export function registerDownloadListeners() {
       filePath: p.filePath,
     });
     store.dispatch('showToast', '下载完成');
+    // [B-52] 释放槽位，拉起排队中的下一个
+    _activeSet.delete(p.episodeId);
+    _pump();
   });
   ipcRenderer.on('podcast:download:error', (_e, p) => {
     if (!p || !p.episodeId) return;
     store.commit('clearDownloadProgress', p.episodeId);
     store.dispatch('showToast', '下载失败：' + (p.error || ''));
+    // [B-52] 释放槽位，拉起排队中的下一个
+    _activeSet.delete(p.episodeId);
+    _pump();
   });
 }
 
@@ -70,35 +125,40 @@ export async function startDownload(episode) {
   if (existing && existing.status === 'done') {
     return { ok: true, alreadyDone: true };
   }
-  // 立刻在 store 写入 0% 进度（UI 即可显示进度条）
-  store.commit('setDownloadProgress', {
-    episodeId: episode.id,
-    bytesDone: 0,
-    bytesTotal: 0,
-    status: 'downloading',
-  });
-  const idx = (episode.id || '').indexOf('::');
-  const feedUrl = idx > 0 ? episode.id.slice(0, idx) : '';
-  const guid = idx > 0 ? episode.id.slice(idx + 2) : episode.guid || episode.id;
-  const res = await ipcRenderer.invoke('podcast:download:start', {
-    episodeId: episode.id,
-    feedUrl,
-    guid,
-    audioUrl: episode.audioUrl,
-  });
-  if (!res || !res.ok) {
-    store.commit('clearDownloadProgress', episode.id);
-    store.dispatch('showToast', '下载启动失败：' + (res?.error || ''));
+  // 已在下载/排队 → 忽略重复（多选批量时天然去重）
+  if (_activeSet.has(episode.id) || _waitQueue.some(e => e.id === episode.id)) {
+    return { ok: true, already: true };
   }
-  return res || { ok: false };
+  // [B-52] 并发上限：达到上限则入队排队(status:'queued')，否则立即下载
+  if (_activeSet.size >= MAX_CONCURRENT) {
+    _waitQueue.push(episode);
+    store.commit('setDownloadProgress', {
+      episodeId: episode.id,
+      bytesDone: 0,
+      bytesTotal: 0,
+      status: 'queued',
+    });
+    return { ok: true, queued: true };
+  }
+  _activeSet.add(episode.id);
+  return _doStart(episode);
 }
 
 export async function cancelDownload(episodeId) {
+  // [B-52] 排队中(未开始) → 直接出队，无需通知主进程
+  const qi = _waitQueue.findIndex(e => e.id === episodeId);
+  if (qi >= 0) {
+    _waitQueue.splice(qi, 1);
+    store.commit('clearDownloadProgress', episodeId);
+    return { ok: true };
+  }
   if (!ipcRenderer) return { ok: false };
   const res = await ipcRenderer.invoke('podcast:download:cancel', {
     episodeId,
   });
+  _activeSet.delete(episodeId);
   store.commit('clearDownloadProgress', episodeId);
+  _pump();
   return res || { ok: false };
 }
 

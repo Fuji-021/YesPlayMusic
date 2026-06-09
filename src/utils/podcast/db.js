@@ -25,6 +25,38 @@ export function getSubscribedPodcasts() {
   return db.podcasts.filter(p => p.subscribed !== false).toArray();
 }
 
+// [B-52] 本地搜索：已订阅节目（按 title 包含，忽略大小写）
+export async function searchLocalPodcasts(term) {
+  const q = String(term || '')
+    .trim()
+    .toLowerCase();
+  if (!q) return [];
+  const all = await db.podcasts.filter(p => p.subscribed !== false).toArray();
+  return all.filter(p => (p.title || '').toLowerCase().includes(q));
+}
+
+// [B-52] 本地搜索：单集标题（限 limit 条，join 所属节目名）
+export async function searchLocalEpisodes(term, limit = 30) {
+  const q = String(term || '')
+    .trim()
+    .toLowerCase();
+  if (!q) return [];
+  const matched = await db.episodes
+    .filter(e => e.title && e.title.toLowerCase().includes(q))
+    .limit(limit)
+    .toArray();
+  const podIds = [...new Set(matched.map(e => e.podcastId))];
+  const pods = await db.podcasts.bulkGet(podIds);
+  const titleMap = {};
+  podIds.forEach((id, i) => {
+    if (pods[i]) titleMap[id] = pods[i].title;
+  });
+  return matched.map(e => ({
+    ...e,
+    podcastTitle: titleMap[e.podcastId] || '',
+  }));
+}
+
 export function getPodcast(id) {
   return db.podcasts.get(id);
 }

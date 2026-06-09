@@ -25,35 +25,39 @@ export function appleIdOf(podcast) {
 }
 
 // 一键订阅：Apple id → feedUrl → subscribeByRssUrl（复用现有订阅入库逻辑）
-export async function subscribePodcast(podcast) {
+// [B-52] 取 feedUrl：搜索结果自带 feedUrl 直接用；榜单项用 Apple id → resolveFeed
+async function resolveFeedUrl(podcast) {
+  if (podcast && podcast.feedUrl) return podcast.feedUrl;
   const appleId = appleIdOf(podcast);
-  if (!appleId) {
-    throw new Error('该节目暂无 Apple 源，无法自动订阅');
-  }
-  if (!ipcRenderer) throw new Error('订阅仅在桌面版可用');
-  const res = await ipcRenderer.invoke('podcast:resolveFeed', appleId);
-  if (!res || !res.ok || !res.feedUrl) {
-    throw new Error((res && res.error) || '未能解析出 RSS 订阅源');
-  }
-  // [B-48 第1点] 来源标记为 'discover'（首页云端添加）
-  const result = await subscribeByRssUrl(res.feedUrl, 'discover');
-  // 返回 feedUrl 便于订阅后跳转节目详情页
-  return { ...result, feedUrl: res.feedUrl };
-}
-
-// [B-50] 预览：Apple id → feedUrl → previewByRssUrl（入库供详情/试听，但不订阅）
-export async function previewPodcast(podcast) {
-  const appleId = appleIdOf(podcast);
-  if (!appleId) {
-    throw new Error('该节目暂无 Apple 源，无法打开');
-  }
+  if (!appleId) throw new Error('该节目暂无 Apple 源');
   if (!ipcRenderer) throw new Error('仅在桌面版可用');
   const res = await ipcRenderer.invoke('podcast:resolveFeed', appleId);
   if (!res || !res.ok || !res.feedUrl) {
     throw new Error((res && res.error) || '未能解析出 RSS 订阅源');
   }
-  const result = await previewByRssUrl(res.feedUrl);
-  return { ...result, feedUrl: res.feedUrl };
+  return res.feedUrl;
+}
+
+// [B-52] 在线搜索播客（iTunes Search，主进程；结果含 feedUrl，可直接订阅/预览）
+export async function searchPodcasts(term) {
+  if (!ipcRenderer) throw new Error('搜索仅在桌面版可用');
+  const res = await ipcRenderer.invoke('podcast:search', term);
+  if (!res || !res.ok) throw new Error((res && res.error) || '搜索失败');
+  return res.items || [];
+}
+
+// 一键订阅：feedUrl(搜索) 或 Apple id→feedUrl(榜单) → subscribeByRssUrl（来源 discover）
+export async function subscribePodcast(podcast) {
+  const feedUrl = await resolveFeedUrl(podcast);
+  const result = await subscribeByRssUrl(feedUrl, 'discover');
+  return { ...result, feedUrl };
+}
+
+// [B-50] 预览：feedUrl(搜索) 或 Apple id→feedUrl(榜单) → previewByRssUrl（入库供试听，不订阅）
+export async function previewPodcast(podcast) {
+  const feedUrl = await resolveFeedUrl(podcast);
+  const result = await previewByRssUrl(feedUrl);
+  return { ...result, feedUrl };
 }
 
 function shuffle(arr) {

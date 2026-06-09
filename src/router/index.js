@@ -20,6 +20,13 @@ const routes = [
     component: () => import('@/views/discoverList.vue'),
     meta: { requireLogin: false },
   },
+  // [B-52] 播客搜索结果页（本地 + 在线 iTunes）
+  {
+    path: '/search-podcast/:keywords',
+    name: 'searchPodcast',
+    component: () => import('@/views/searchPodcast.vue'),
+    meta: { requireLogin: false },
+  },
   {
     path: '/login',
     name: 'login',
