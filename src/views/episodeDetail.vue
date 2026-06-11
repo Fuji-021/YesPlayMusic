@@ -256,7 +256,7 @@ export default {
     async load() {
       this.episode = await getEpisode(this.episodeId);
       if (!this.episode) {
-        this.$router.replace('/library');
+        this.$router.replace('/'); // [B-79] 单集不存在 → 回首页(不再甩我的订阅，同 B-70)
         return;
       }
       this.podcast = await getPodcast(this.feedUrl);

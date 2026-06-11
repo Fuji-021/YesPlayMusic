@@ -949,12 +949,31 @@ export default {
         transform: scale(1.04);
       }
     }
+    // [B-79] 简介：默认整行全显示；过长才出**细**滚动条(按需)、仅限简介区，不再像以前那样直接裁掉
+    //   (凹凸电波这类长简介之前 max-height+overflow:hidden 被切、无法看全)。max-height 用 clamp 随窗口缩放。
     .d {
       font-size: 14px;
       opacity: 0.7;
       line-height: 1.6;
-      max-height: 100px;
-      overflow: hidden;
+      max-height: clamp(90px, 13vh, 160px);
+      overflow-y: auto;
+      padding-right: 6px; // 给滚动条留位，文字不贴边
+      scrollbar-width: thin; // Firefox 细滚动条
+      // 覆盖全局 8px 滚动条：本区更细(5px)、轨道透明(去掉那条左边线)、拇指更淡
+      &::-webkit-scrollbar {
+        width: 5px;
+      }
+      &::-webkit-scrollbar-track {
+        background: transparent;
+        border-left: none;
+      }
+      &::-webkit-scrollbar-thumb {
+        background: rgba(128, 128, 128, 0.3);
+        border-radius: 3px;
+      }
+      &:hover::-webkit-scrollbar-thumb {
+        background: rgba(128, 128, 128, 0.5);
+      }
     }
   }
   // [B-25] 取消订阅按钮在右上

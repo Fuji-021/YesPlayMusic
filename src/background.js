@@ -187,7 +187,10 @@ class Background {
     log('creating app window');
 
     const appearance = this.store.get('settings.appearance');
-    const showLibraryDefault = this.store.get('settings.showLibraryDefault');
+    // [B-79] PodPlayer 首屏固定为「首页(/)」，不再落「我的订阅(/library)」。
+    //   原 settings.showLibraryDefault 是 YesPlayMusic(音乐播放器)默认进音乐库的设置，
+    //   对播客客户端不适用、且用户 store 里已持久化成 true → 直接强制 false。
+    const showLibraryDefault = false;
 
     const options = {
       width: this.store.get('window.width') || 1440,
@@ -499,7 +502,7 @@ class Background {
     });
 
     if (!isMac) {
-      app.on('second-instance', (e, cl, wd) => {
+      app.on('second-instance', () => {
         if (this.window) {
           this.window.show();
           if (this.window.isMinimized()) {

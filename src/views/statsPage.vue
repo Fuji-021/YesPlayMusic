@@ -155,7 +155,8 @@ export default {
     //    v1.4=离开行钉坐标+镜像[已废弃：快速切换时内联残留致崩]；
     //    v1.5=离开行**瞬时消失**(砍掉整条 leave 路径) + .bar overflow:hidden 修封面越界；
     //    v1.5.1=行间隙 margin→padding(涂实透明窗口) + 容器实底 + 去 isolation，修 FLIP 交叉漏出的细线；
-    //    v1.5.2=行加页面同色 2px 光环(box-shadow spread)，盖死 FLIP 合成层亚像素发丝缝的"毛刺"。
+    //    v1.5.2=行加页面同色 2px 光环(box-shadow spread)，盖死 FLIP 合成层亚像素发丝缝的"毛刺"；
+    //    v1.5.3=.stat-leave-active{display:none} 让离开行真正即时消失(修"全部→周"唯一离开节目先显示再跳走)。
     //    规则见开发文档「版本命名规则」。)
     async enterWithAnimation() {
       // [C] 并发守卫：锁定本次加载序号与 range，每个 await 后校验，避免初次加载期间切范围导致旧 fresh 覆盖/存错键
@@ -437,10 +438,17 @@ export default {
 .stat-enter {
   transform: translateX(-12px);
 }
-/* [统计动画 v1.5] 离开条：**瞬时消失**(不再定义任何 .stat-leave-* 过渡 → Vue 检测无过渡、立即移除)。
+/* [统计动画 v1.5/v1.5.3] 离开条：**瞬时消失**。
    leave 路径(absolute/钉坐标/max-height 塌缩/条回缩)自 v1~v1.4 五个版本反复出 bug：
    残影(v1.1)→顶部闪现(v1.2.1)→交叉透叠(v1.3)→跳位切割(v1.4)→快速切换内联残留崩坏(v1.4 实测)。
-   v1.5 决定性收敛：离开行没有动画就没有这一类 bug；留存行 FLIP 平移 + 新增行从左长出保持原样。 */
+   v1.5 砍掉整条 leave 路径；但 v1.5.3 发现"删掉 leave CSS"≠ 真正瞬时——Vue transition-group 在
+   FLIP move 阶段仍会把离开行**滞留约 0.6s**(显示陈旧内容)再移除：Dev 测试床 7 条离开被 FLIP 互相
+   遮掩没暴露，master 上"唯一在全部不在本周"的单条节目(如 FView Friday)就露出"先显示→再跳走"。
+   v1.5.3 显式 `display:none`：离开行即刻移出布局、不可见(无论 Vue 等不等过渡)，且不引入任何内联样式/
+   绝对定位 → 不会重蹈 v1.4 覆辙。留存行 FLIP + 新增行从左长出保持原样。 */
+.stat-leave-active {
+  display: none;
+}
 .stat-row {
   display: flex;
   align-items: center;
