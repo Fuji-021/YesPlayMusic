@@ -1714,7 +1714,11 @@ export default {
       // 兜底，实际由 inline sleepMarkerColor 覆盖
       background: var(--color-primary);
       box-shadow: 0 0 0 1.5px var(--color-body-bg);
-      transition: transform 0.12s ease;
+      // [B-73.1] hover 放大改用 width/height(在固定 8×16 绝对定位命中区内 flex 居中长大)，
+      //   不再用 transform:scale。scale 会把 box-shadow 描边一起缩放 + 合成层亚像素取整抖动，
+      //   慢速从左往右划过、指针压在标上时表现为"指针被轻微抢占/位移"(且左右方向不对称)。
+      //   改 w/h 后从中心对称长大、不重排滑条/页面、无 transform 抖动 → 位移感消除。
+      transition: width 0.12s ease, height 0.12s ease;
     }
     .sl-end-tip {
       position: absolute;
@@ -1735,7 +1739,8 @@ export default {
     }
     &:hover {
       .sl-end-bar {
-        transform: scale(1.4);
+        width: 3px;
+        height: 14px;
       }
       .sl-end-tip {
         opacity: 1;
