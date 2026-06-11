@@ -96,10 +96,11 @@
       </div>
     </div>
 
-    <div v-if="episode" class="notes">
-      <!-- eslint-disable-next-line vue/no-v-html
-           sanitizeHtml 已经清洗了 RSS description（白名单 tag + 移除 on* + 强制 http 协议） -->
-      <div v-if="sanitizedDescription" v-html="sanitizedDescription"></div>
+    <div v-if="episode" class="notes" @click="onNotesClick">
+      <!-- sanitizeHtml 已清洗 RSS description（白名单 tag + 移除 on* + 强制 http 协议）；
+           processedNotes 在其基础上把纯文本时间戳 HH:MM:SS/MM:SS 包成可点 .ts-seek（仅文本节点，不碰属性）。 -->
+      <!-- eslint-disable-next-line vue/no-v-html -->
+      <div v-if="processedNotes" v-html="processedNotes"></div>
       <div v-else class="empty">这一集没有提供 show notes / 节目简介。</div>
     </div>
   </div>
@@ -147,6 +148,20 @@ export default {
     sanitizedDescription() {
       const raw = (this.episode && this.episode.description) || '';
       return sanitizeHtml(raw);
+    },
+    // [B-74] 时间戳 seek：在已清洗的 show notes 上，把纯文本里的 HH:MM:SS / MM:SS 包成可点蓝链
+    //   (.ts-seek data-sec=秒)。只遍历**文本节点**改写，不动标签/属性(避免破坏已有 <a href> 里的数字)。
+    processedNotes() {
+      const html = this.sanitizedDescription;
+      if (!html) return '';
+      try {
+        const div = document.createElement('div');
+        div.innerHTML = html;
+        this.linkifyTimestamps(div);
+        return div.innerHTML;
+      } catch (e) {
+        return html; // 解析异常兜底用原文
+      }
     },
     progressLabel() {
       if (this.listenStats && this.listenStats.completed) return '已听完';
@@ -252,6 +267,98 @@ export default {
     play() {
       const title = (this.podcast && this.podcast.title) || '';
       this.$store.state.player.playPodcastEpisode(this.episode, title);
+    },
+    // [B-74] show notes 里把纯文本时间戳包成可点链接（只遍历文本节点，不碰标签/属性）。
+    linkifyTimestamps(root) {
+      const walker = document.createTreeWalker(
+        root,
+        NodeFilter.SHOW_TEXT,
+        null
+      );
+      const nodes = [];
+      let n;
+      while ((n = walker.nextNode())) nodes.push(n);
+      nodes.forEach(node => {
+        // 已在 <a> 内的文本不再处理（避免把链接文字里的数字也包进去）
+        const parent = node.parentNode;
+        if (!parent || (parent.closest && parent.closest('a'))) return;
+        const text = node.nodeValue || '';
+        const re = /\b(\d{1,2}):(\d{2})(?::(\d{2}))?\b/g;
+        if (!re.test(text)) return;
+        re.lastIndex = 0;
+        const frag = document.createDocumentFragment();
+        let last = 0;
+        let m;
+        while ((m = re.exec(text))) {
+          const full = m[0];
+          let sec;
+          if (m[3] !== undefined) {
+            const H = +m[1];
+            const M = +m[2];
+            const S = +m[3];
+            if (M >= 60 || S >= 60) continue; // 非法时分秒 → 当普通文本
+            sec = H * 3600 + M * 60 + S;
+          } else {
+            const M = +m[1];
+            const S = +m[2];
+            if (S >= 60) continue;
+            sec = M * 60 + S;
+          }
+          if (m.index > last) {
+            frag.appendChild(
+              document.createTextNode(text.slice(last, m.index))
+            );
+          }
+          const a = document.createElement('a');
+          a.className = 'ts-seek';
+          a.setAttribute('data-sec', String(sec));
+          a.textContent = full;
+          frag.appendChild(a);
+          last = m.index + full.length;
+        }
+        if (last > 0) {
+          if (last < text.length) {
+            frag.appendChild(document.createTextNode(text.slice(last)));
+          }
+          parent.replaceChild(frag, node);
+        }
+      });
+    },
+    // [B-74] 点 show notes 里的时间戳 → seek 到对应秒（本集在播则原地 seek，否则从该处起播）
+    onNotesClick(e) {
+      const a = e.target && e.target.closest && e.target.closest('.ts-seek');
+      if (!a) return;
+      e.preventDefault();
+      const sec = parseInt(a.getAttribute('data-sec'), 10);
+      if (isNaN(sec)) return;
+      this.seekToTimestamp(sec);
+    },
+    seekToTimestamp(sec) {
+      const player = this.$store.state.player;
+      if (!player || !this.episode) return;
+      const cur = player.currentTrack;
+      const isThis = cur && cur.podcastEpisodeId === this.episode.id;
+      if (isThis) {
+        player.progress = sec; // howler seek（setter 会处理未 loaded 时 once('load')）
+        if (!player.playing && typeof player.play === 'function') player.play();
+      } else {
+        const title = (this.podcast && this.podcast.title) || '';
+        // 起播后再 seek：此 once('load') 注册在 savedPos seek 之后 → 时间戳生效
+        Promise.resolve(player.playPodcastEpisode(this.episode, title))
+          .then(() => {
+            player.progress = sec;
+          })
+          .catch(() => {});
+      }
+      this.$store.dispatch('showToast', '已跳到 ' + this.fmtTs(sec));
+    },
+    fmtTs(sec) {
+      sec = Math.max(0, Math.floor(sec || 0));
+      const h = Math.floor(sec / 3600);
+      const m = Math.floor((sec % 3600) / 60);
+      const s = sec % 60;
+      const ss = String(s).padStart(2, '0');
+      return h > 0 ? `${h}:${String(m).padStart(2, '0')}:${ss}` : `${m}:${ss}`;
     },
     // [S-3] 三个小入口
     onFav() {
@@ -590,6 +697,12 @@ export default {
       &:hover {
         text-decoration: underline;
       }
+    }
+    // [B-74] 时间戳 seek 链接（无 href，需手动 pointer + 加粗以示可点）
+    a.ts-seek {
+      cursor: pointer;
+      font-weight: 600;
+      white-space: nowrap;
     }
     img {
       max-width: 100%;
