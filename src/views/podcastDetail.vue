@@ -161,19 +161,8 @@
       <div v-if="episodes.length > visibleEpisodes.length" class="ep-more-hint">
         载入中 · {{ visibleEpisodes.length }} / {{ episodes.length }}
       </div>
-      <!-- [B-74 彩蛋#1] 全部渲染完 + 列表够长(>50) → 彩虹猫(nyancat)到底奖励。
-           吉祥物位置登记在案(memory easter-eggs.md)，后续统计彩蛋个数用。 -->
-      <div
-        v-else-if="episodes.length > 50"
-        class="ep-egg"
-        title="彩蛋 · 你滑到底啦"
-      >
-        <span class="ep-egg-rainbow"></span>
-        <img class="ep-egg-cat" src="/img/logos/nyancat.gif" alt="nyancat" />
-        <span class="ep-egg-text"
-          >喵～到底啦 · 共 {{ episodes.length }} 集</span
-        >
-      </div>
+      <!-- [B-76] 原"滑到底彩虹猫"彩蛋#1 已移除：改后台水合后不再有加载空白，
+           该彩蛋失去语境、属冗余 → 删之（吉祥物以后另觅合适场景）。 -->
     </div>
 
     <!-- [B-34] 多选模式固定下载栏（滚动时固定在播放栏上方） -->
@@ -994,39 +983,6 @@ export default {
   font-size: 13px;
   opacity: 0.4;
   user-select: none;
-}
-// [B-74 彩蛋#1] 滑到长列表底部的彩虹猫(nyancat)奖励：彩虹条 + 像素猫(尺寸≈字号) + 短趣味文案 + 条数
-.ep-egg {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  gap: 8px;
-  padding: 20px 4px 28px;
-  font-size: 13px;
-  opacity: 0.75;
-  user-select: none;
-  .ep-egg-rainbow {
-    width: 26px;
-    height: 4px;
-    border-radius: 2px;
-    background: linear-gradient(
-      90deg,
-      #ff3b30,
-      #ff9500,
-      #ffcc00,
-      #34c759,
-      #007aff,
-      #5856d6
-    );
-  }
-  .ep-egg-cat {
-    height: 18px; // ≈ 文案字号，吉祥物不抢镜
-    width: auto;
-    image-rendering: pixelated; // nyancat 像素图，缩放保持锐利
-  }
-  .ep-egg-text {
-    color: var(--color-text);
-  }
 }
 // [B-70] 预览失败原地错误态
 .ep-error {
