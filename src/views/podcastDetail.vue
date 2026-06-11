@@ -287,6 +287,7 @@ import {
   removeDownload,
 } from '@/utils/podcast/downloads';
 import { stripHtmlToText } from '@/utils/podcast/sanitizeHtml';
+import { getEpisodeCache, setEpisodeCache } from '@/utils/podcast/episodeCache';
 import SvgIcon from '@/components/SvgIcon.vue';
 
 export default {
@@ -448,30 +449,49 @@ export default {
       }
     },
     async load() {
-      this.podcast = await getPodcast(this.feedUrl);
-      if (!this.podcast) {
+      const feedUrl = this.feedUrl;
+      // [B-77/L1] 命中内存缓存 → 先用上次数据**秒显**，再后台从 Dexie 校正(stale-while-revalidate)
+      const cached = getEpisodeCache(feedUrl);
+      if (cached) {
+        this.podcast = cached.podcast;
+        this.episodes = cached.episodes;
+        this._presentEpisodes();
+      }
+      // 权威重读
+      const podcast = await getPodcast(feedUrl);
+      if (feedUrl !== this.feedUrl) return; // 期间已切到别的节目 → 放弃这次 stale 结果
+      if (!podcast) {
         // [B-70] 节目不存在(被删/URL 错/预览入库竞态)：回首页(不再甩到我的订阅)
-        this.$router.replace('/');
+        if (!cached) this.$router.replace('/');
         return;
       }
       // [B-46 / D-3] 进详情即视为"已看过新单集"，清掉我的订阅页该卡片的新单集角标
-      if (this.podcast.newCount) {
-        updatePodcast(this.feedUrl, { newCount: 0 }).catch(() => {});
+      if (podcast.newCount) {
+        updatePodcast(feedUrl, { newCount: 0 }).catch(() => {});
       }
-      const eps = await getEpisodesByPodcast(this.feedUrl);
+      const eps = await getEpisodesByPodcast(feedUrl);
+      if (feedUrl !== this.feedUrl) return;
       // [B-36] 批量 bulkGet 读进度 + listenStats（原来每集各一次 get，百集列表很卡）
       const ids = eps.map(e => e.id);
       const [progresses, stats] = await Promise.all([
         getEpisodeProgressBulk(ids).catch(() => []),
         getListenStatsBulk(ids).catch(() => []),
       ]);
-      this.episodes = eps.map((ep, i) => ({
+      if (feedUrl !== this.feedUrl) return;
+      const mapped = eps.map((ep, i) => ({
         ...ep,
         listenedSec: (progresses[i] && progresses[i].position) || 0,
         listenStats: stats[i] || null,
       }));
-      // [B-75/F1] 新节目视图：渲染量回到首屏 50、滚动条回到顶部(避免沿用上个节目的深滚动位)，
-      //   随后后台逐帧水合补满全量。
+      this.podcast = podcast;
+      this.episodes = mapped;
+      setEpisodeCache(feedUrl, { podcast, episodes: mapped }); // [B-77/L1] 写缓存供下次秒显
+      if (cached) this._startHydration();
+      // 命中过：仅更新数据 + 续水合，不再复位滚动位
+      else this._presentEpisodes(); // 未命中：首次复位渲染量/滚顶/水合
+    },
+    // [B-75/F1] 新节目视图：渲染量回首屏 50、滚动条回顶部(不沿用上个节目深滚动位)，随后后台逐帧水合
+    _presentEpisodes() {
       this.epDisplayLimit = 50;
       const main = this.$el && this.$el.closest('main');
       if (main) main.scrollTop = 0;
