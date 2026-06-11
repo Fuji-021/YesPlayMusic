@@ -670,7 +670,8 @@ export default {
         this.sleepOutsideListener = null;
       }
     },
-    // [B-63] 开菜单时按单集剩余时间算量程：剩余≤90min→蓝标居中(max=2×剩余)，>90min→蓝标最右(max=剩余)
+    // [B-69bis S0-spec] 开菜单按单集剩余算量程：剩余<CAP(120min)→量程固定 0–120(轴稳定、跨单集可比)、
+    //   蓝标按真实剩余比例落位；剩余≥120→量程=结束档、蓝标最右。阈值按"剩余时长"(用户拍板 CAP=120/按剩余)。
     computeSleepRange() {
       const dur = this.player.currentTrackDuration || 0;
       const pos = this.player.progress || 0;
@@ -679,19 +680,22 @@ export default {
         this.sleepEpisodeRemainMin = remainMin;
         // [B-65] 步长随单集时长动态：长单集步长大 → 每档够宽好拖、落点是整数(30/45/60/90)
         const step = this.sleepStepFor(remainMin);
-        // "本集结束"对应的刻度档位：向上取整到步长整数倍 → 落得到、且量程能被步长整除
+        // "本集结束"对应的刻度档位：剩余向上取整到步长整数倍 → 落得到、snap 命中、量程可整除
         const endStop = Math.max(step, Math.ceil(remainMin / step) * step);
-        // 剩余≤90min → 量程=2×结束档(蓝标居中、两侧都留定时空间)；否则量程=结束档(蓝标最右)
-        //   [B67-BUG-1] 量程强制为步长整数倍：vue-slider 要求 (max-min)%interval===0，
-        //   否则 total=0、gap=100/0=Infinity → 整条滑块死锁(endStop 本就是步长倍，此为未来改动兜底)
-        const max =
-          Math.ceil((remainMin <= 90 ? endStop * 2 : endStop) / step) * step;
+        // [B-69bis S0-spec] 量程：剩余<120→固定 ceil(120/step)*step(=120，short 单集轴稳定)；
+        //   剩余≥120→max=endStop(≈剩余、蓝标最右)。蓝标 endStop/max → short 按真实剩余比例落位。
+        //   max 始终是步长整数倍 → 满足 vue-slider (max-min)%interval===0(防 total=0 死锁)。
+        const CAP = 120;
+        const max = remainMin >= CAP ? endStop : Math.ceil(CAP / step) * step;
         this.sleepStep = step;
         this.sleepEndStop = endStop;
         this.sleepMaxMin = max;
         this.sleepMarkerPct = Math.min(100, (endStop / max) * 100);
-        // 已设定时(换集后步长可能变) → 把当前值规整到新步长档位，避免滑块错位
-        if (this.sleepMode !== 'off') {
+        // [B-69bis S2] end 模式重开弹窗：把手贴回"本集结束"档(否则播放推进/换集后旧值与新蓝标脱开)；
+        //   min 模式就近规整到新步长档位，避免滑块错位。
+        if (this.sleepMode === 'end') {
+          this.sleepSliderVal = endStop;
+        } else if (this.sleepMode === 'min') {
           this.sleepSliderVal = Math.min(
             max,
             Math.round(this.sleepSliderVal / step) * step
