@@ -154,30 +154,31 @@
         <div class="blank"></div>
       </div>
       <div class="right-control-buttons">
+        <!-- [B-76] 标记位置键：放在右列**最左**(blank 之前) → 紧贴金刚键"前进30秒"右侧、
+             与左侧"收藏"以播放为对称中心；blank 把倍速等推到右边、自然拉开距离(不再贴倍速)。
+             短按=标记此刻(图标轻弹、不变色)；长按 3 秒=清空本集全部标记；标记 >5 变封面主色、>10 彩虹(彩蛋)。 -->
+        <div
+          v-if="isPodcastTrack"
+          class="mark-control"
+          :class="{
+            charging: markCharging,
+            pulse: markPulse,
+            rainbow: markCount > 10,
+          }"
+          :style="
+            markCount > 5 && markCount <= 10 ? { color: markColor } : null
+          "
+          title="标记此刻"
+          @click.stop
+          @mousedown.stop="onMarkPressStart"
+          @mouseup="onMarkPressEnd"
+          @mouseleave="onMarkPressCancel"
+        >
+          <span class="mark-charge"></span>
+          <svg-icon class="mark-icon" icon-class="social-network" />
+        </div>
         <div class="blank"></div>
         <div class="container" @click.stop>
-          <!-- [B-75] 标记位置键：紧贴金刚键右侧，与左侧"收藏"对称。短按=标记当前时间点(轻反馈不变色)；
-               长按 5 秒=清空本集全部标记。标记 >5 变封面主色、>10 变彩虹(彩蛋#2)。仅播客单集显示。 -->
-          <div
-            v-if="isPodcastTrack"
-            class="mark-control"
-            :class="{
-              charging: markCharging,
-              pulse: markPulse,
-              rainbow: markCount > 10,
-            }"
-            :style="
-              markCount > 5 && markCount <= 10 ? { color: markColor } : null
-            "
-            :title="markBtnTitle"
-            @click.stop
-            @mousedown.stop="onMarkPressStart"
-            @mouseup="onMarkPressEnd"
-            @mouseleave="onMarkPressCancel"
-          >
-            <span class="mark-charge"></span>
-            <svg-icon class="mark-icon" icon-class="social-network" />
-          </div>
           <!-- [播客改造 A-6] 倍速按钮：右侧按钮区第一个，紧贴中间播放控制 -->
           <div ref="rateControl" class="rate-control" @click.stop>
             <button
@@ -570,10 +571,6 @@ export default {
     markCount() {
       return this.currentMarks.length;
     },
-    markBtnTitle() {
-      if (this.markCount === 0) return '标记这一刻（长按 5 秒清空）';
-      return `已标记 ${this.markCount} 处（短按再标，长按 5 秒清空）`;
-    },
   },
   mounted() {
     this.setupMediaControls();
@@ -692,19 +689,19 @@ export default {
         })
         .catch(() => {});
     },
-    // 按下：起 5 秒长按计时 + 充能动画（mousedown）
+    // 按下：起 3 秒长按计时 + 充能动画（mousedown）。[B-76] 5s→3s：等待心理近指数增长，5s 体感像 10s
     onMarkPressStart() {
       if (!this.markEpisodeId) return;
       this._markPressed = true;
       this.markCharging = true;
       clearTimeout(this._markTimer);
       this._markTimer = setTimeout(() => {
-        // 长按满 5 秒 → 清空本集全部标记
+        // 长按满 3 秒 → 清空本集全部标记
         this.markCharging = false;
         this._markPressed = false;
         this._markTimer = null;
         this.clearAllMarks();
-      }, 5000);
+      }, 3000);
     },
     // 松手：未到 5 秒 = 短按 → 标记当前时间点（mouseup）
     onMarkPressEnd() {
@@ -731,19 +728,18 @@ export default {
       if (!id) return;
       const sec = Math.floor(this.player.progress || 0);
       this.$store.commit('addPodcastMark', { episodeId: id, sec });
-      // 短按反馈：图标 pulse 一下（不变色）
+      // [B-76] 反馈只靠视觉(图标 pulse + 进度条出蓝标)，不弹 toast(用户嫌提示文案干扰视线)
       this.markPulse = true;
       clearTimeout(this._markPulseTimer);
       this._markPulseTimer = setTimeout(() => {
         this.markPulse = false;
       }, 260);
-      this.showToast('已标记 ' + this.fmtClock(sec));
     },
     clearAllMarks() {
       const id = this.markEpisodeId;
       if (!id || !this.markCount) return;
+      // [B-76] 清空靠视觉(进度条蓝标消失)反馈，不弹 toast
       this.$store.commit('clearPodcastMarks', id);
-      this.showToast('已清空本集标记');
     },
     // [播客改造 A-21] 倍速：步进 0.1，0.5-3 范围
     setRate(rate) {
@@ -1500,6 +1496,7 @@ export default {
 
 .right-control-buttons {
   display: flex;
+  align-items: center; // [B-76] 让直接子级(标记键)与 blank/container 一起垂直居中
 }
 
 .right-control-buttons .container {
@@ -1548,6 +1545,9 @@ export default {
   border-radius: 50%;
   cursor: pointer;
   user-select: none;
+  // [B-76] 跟其他控制图标一样用 --color-text → 深色模式自适应(不再黑)。
+  //   放父级：彩蛋的 inline color(6~10) / 彩虹动画(>10) 仍能覆盖。
+  color: var(--color-text);
   // 长按充能圈：从中心放大，5 秒线性填满=即将清空；松手 0.2s 缩回（视觉区分长/短按）
   .mark-charge {
     position: absolute;
@@ -1573,10 +1573,10 @@ export default {
   &.pulse .mark-icon {
     transform: scale(1.32);
   }
-  // 长按充能：圈用 5 秒线性放大填满
+  // 长按充能：圈用 3 秒线性放大填满（与长按判定时长一致）
   &.charging .mark-charge {
     transform: scale(1);
-    transition: transform 5s linear;
+    transition: transform 3s linear;
   }
   // 彩蛋#2：>10 标记 → 图标彩虹流转（animation 的 color 覆盖 inline color）
   &.rainbow .mark-icon {
