@@ -202,3 +202,107 @@ beforeDestroy（Player.vue:546-554）清理了 rate/sleep 两组，未调 `close
 - "howler fade 竞态丢事件"：已有 220ms setTimeout 兜底 + done 幂等，属防御已到位，不立案。
 - "tickListen dt=0 统计丢失"：B-64 #17 已修，残余窗口仅 howler 未 loaded 的最初几秒，影响可忽略。
 - "搜索每键全表扫致输入延迟"：搜索仅回车提交（Navbar:47），**触发频率前提错误**，降级并入 F4。
+
+---
+---
+
+# 追加 · B-69bis（2026-06-11 第二轮）：睡眠滑条真凶实锤 —— 滑轨宽度塌缩为 0
+
+> 背景：S1（label 挤压+scale 缓存）已按建议修复（commit `d165aee`，拆行恒宽），用户实测**仍然**"拖不动、数值对不上、短/长单集都坏、哪哪都不对"。说明 S1 是真实但**次要**因素。本轮放弃继续读码推演，改为**搭 1:1 复现环境实测**，已锁定主因并复现全部症状。
+
+## S0【致命·根因】vue-slider 根元素内联 `width:auto` 在 flex 容器内塌缩 → 滑轨实际宽度 = 0px
+
+### 机制（三步，每步都已对源码/规范核实）
+
+1. **vue-slider 给自己的根元素写内联 `width: auto`**（lib/vue-slider.tsx:217-240 `containerStyles`：未传 `width` prop 且水平方向时 `containerWidth='auto'`，随 `:style` 渲染成内联样式）。
+2. **内联样式在层叠中压过样式表**：Player.vue 里 `.sleep-slider .vue-slider { width: 100% }`（无 `!important`）**完全失效**。
+3. **`.sl-track` 是 `display:flex`**：滑条作为 flex 项、无 `flex-grow`、basis=auto → 按**内容宽度**收缩；而它唯一的流内子元素 `.vue-slider-rail` 是 `width:100%`（百分比在内在尺寸计算中按 auto 处理），rail 的子元素（process/dot/marks）**全部绝对定位、不贡献内容宽度** → max-content = 0 → **整个滑条收缩为 0px 宽**。
+
+0 宽轨道下的交互数学：`setScale()` → `scale = floor(0)/100 = 0`；任何按下/拖动 `getPosByEvent` → `偏移px / 0 = Infinity` → 钳到 100% → **值瞬移到 max**。把手渲染在 0 宽轨道的任意百分比都是同一个点（轨道左缘）→ 视觉上**永远不动**。
+
+### 复现实证（脚本：`scripts/sleep_slider_repro.js`，jsdom + 真实 vue-slider@3.2.24 + Player.vue 原版睡眠逻辑）
+
+| 场景 | 期望 | 轨道=216px（健康几何） | 轨道=0px（真实现状） |
+|---|---|---|---|
+| 短单集(剩25min)拖到 50% | ≈25 | **25 ✓**（change 逐档 1→25） | **50=max ✗**（一次 change 直达 max，mode 误成 min） |
+| 短单集拖到蓝标 | end 模式 | **end ✓** | 50≠endStop(25)，**进错 min 模式 ✗** |
+| 长单集(剩264min)拖到 30% | ≈81 | **75 ✓**（差在步长 15 取整，正常） | **270=max ✗**（直接误触发"本集结束"） |
+| 已设 60min 后再拖到 70% | ≈189 | **195 ✓** | **270 ✗** |
+| 点击轨道 25% 处 | ≈13 | **13 ✓** | **50=max ✗** |
+| 拖把手到 75% | ≈38 | **38 ✓** | **50 ✗** |
+
+两组对照说明：**JS 逻辑层（computeSleepRange/onSleepChange/onSleepCommit/吸附/步长/边界）全部正确**，唯一变量是轨道宽度。0 宽组的行为——任何操作瞬移 max、中间档位永远取不到、短长全坏——与用户描述逐字吻合。
+
+### 时间线统一解释（为什么五轮修复都无效）
+
+`git show 10ffdb2`（B-63 睡眠弹窗重做）确凿显示：**该轮删掉了 `.vue-slider { flex: 1 }`**、为放蓝标新增 `.sl-track{flex:1; display:flex}` 包裹层，滑条改用 `width:100%` 托底——**0 宽塌缩自 B-63 起引入**。对照：倍速滑条 `.rate-slider .vue-slider { flex: 1 }`（flex-basis:0+grow，由 flex 算法分配宽度、**不经过 width 属性**）→ 一直正常，这就是"同款弹窗为什么倍速好的"的答案。
+
+| 轮次 | 当时修的 | 为什么没用 |
+|---|---|---|
+| B-64 | `:lazy` 防抖动 | 改的是事件时序，轨道仍 0 宽 |
+| B-65 | 动态步长+去自缩 | 步长再合理，0 宽轨道上任何拖动→max |
+| B67-BUG-1 | `:height=8`+轨道加色 | "看不到托条"的真因是 **0 宽**不是 4px 高/浅色——0×8px 还是看不见 |
+| B-69 S1 | label 拆行恒宽 | S1 机制真实存在，但被 S0 完全遮蔽（"首拖正常"的推断在 0 宽下不成立，此处修正前文） |
+
+### 真机一行验证（建议修复前先做，钉死结论）
+
+弹窗开着时 DevTools Console 执行：
+```js
+document.querySelector('.sleep-menu .vue-slider').offsetWidth   // 预期输出 0
+```
+
+### 修复（一行，二选一）
+
+```scss
+// 方案A（推荐，与倍速滑条同款、已被真机验证的模式）：
+.sleep-slider .sl-track .vue-slider { flex: 1; }   // 替换现在的 width:100%
+```
+```html
+<!-- 方案B：模板上把宽度交给组件自己内联（同样绕开层叠问题） -->
+<vue-slider :width="'100%'" ... >
+```
+修复后：S1 拆行（已做）保证交互期几何恒定，逻辑层已被 216px 对照组证明正确，蓝标 `left:%` 与满宽 rail 坐标系一致（前文"对位精确"结论在宽度恢复后成立）→ 预期整条链路直接工作。回归脚本 `scripts/sleep_slider_repro.js`（需 `npm i -D jsdom@22`，`node scripts/sleep_slider_repro.js`）。
+
+---
+
+## S0-spec【功能未对齐】量程/蓝标规则与产品诉求不一致（用户口径："不是 bug，是功能没做好"）
+
+用户本轮明确的诉求 vs 当前 `computeSleepRange`（Player.vue:674-707）实现：
+
+| 项 | 用户诉求 | 当前实现 | 差异 |
+|---|---|---|---|
+| 短单集量程 | 剩余 < 100/120min → max **固定 100 或 120**，坐标轴稳定 | 剩余 ≤90 → `max = 2×endStop`（随剩余变，如剩 10min 轴只有 0–20） | **轴不稳定、跨单集不可比** |
+| 蓝标位置 | 在**剩余时长**对应的比例位置 | 短单集分支恒在 **50% 正中**（max=2×endStop 的副作用） | 蓝标不反映真实剩余 |
+| 长单集量程 | 剩余 ≥ 100/120 → max = 剩余，蓝标最右 | 剩余 >90 → max=endStop，蓝标最右 | 基本一致（阈值 90 vs 100/120 不同） |
+
+### 对齐建议（改动集中在 computeSleepRange，~5 行）
+
+```js
+const CAP = 120;  // 或 100，待拍板；以"剩余"为基准（用户原话先说"单集时长"后说"剩余时长"，按剩余更合理，需确认）
+if (dur > 0 && remainMin >= 1) {
+  const step = this.sleepStepFor(remainMin);
+  const endStop = Math.max(step, Math.ceil(remainMin / step) * step);
+  const max = remainMin >= CAP ? endStop : Math.ceil(CAP / step) * step;
+  // 蓝标：endStop/max → 短单集按真实剩余比例落位；剩余≥CAP 时 endStop===max → 自然最右
+}
+```
+整除性验算：CAP=120 时可能的步长为 1/2/5（剩余<120 才用 CAP，对应 sleepStepFor ≤120 区间），120%1=120%2=120%5=0 ✓；剩余≥CAP 分支 max=endStop 本就是步长整数倍 ✓。蓝标"剩余=max 时在最右"由 `endStop===max` 自然满足 ✓。
+
+### 留给拍板的两个点
+
+1. CAP 取 **100 还是 120**（用户原话两者皆提）。
+2. 阈值基准用**单集总时长**还是**当前剩余**（建议剩余：暂停点重开弹窗时轴随剩余收敛，蓝标位置始终真实）。
+
+---
+
+## 修订后的修复顺序（替代前文第六节）
+
+| 顺序 | 项 | 说明 |
+|---|---|---|
+| 1 | **S0 滑轨 flex:1** | 一行根治"拖不动/数值对不上"，先真机 `offsetWidth` 验证再改 |
+| 2 | **S0-spec 量程对齐** | 同文件同函数，顺手一起做，CAP/基准先拍板 |
+| 3 | S2 end 模式重开贴蓝标 | 一行 |
+| 4 | P1 startPreview 守卫 | 不变 |
+| 5 | F3 → F1 → F2 → L1~L3 | 不变 |
+
+> 方法论教训（自我修正）：B-69 第一轮对 S1 的"首拖正常"推断，建立在"轨道有宽度"这个未验证前提上——读码推演给出的根因可以是真实的（S1 确实存在）但不一定是**主导**的。本轮先用可控几何证明逻辑无错、再用真实几何复现症状，对照定位，这才把层级排出来。后续遇"多轮修复无效"的 bug，优先怀疑所有轮次都没碰过的那一层（这次是布局），并尽早上复现环境。

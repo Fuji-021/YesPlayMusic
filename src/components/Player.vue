@@ -1646,8 +1646,13 @@ export default {
     align-items: center;
     min-height: 20px;
   }
+  // [B-69bis S0·根治] 滑条用 flex:1 取代 width:100%。vue-slider 未传 :width 时会给根元素
+  //   内联 width:auto(dist containerStyles)，压过样式表的 width:100% → 在 .sl-track(display:flex)
+  //   里按内容宽收缩，而 rail 子元素全绝对定位 → 内容宽=0 → 滑轨塌缩成 0px(scale=0→任何拖动
+  //   位置=Infinity 钳到 max=拖不动/瞬移/把手不动)。flex:1(=flex-basis:0+grow)走 flex 算法分宽、
+  //   绕开 width 属性 → 撑满整行(与一直正常的倍速滑条 .rate-slider .vue-slider{flex:1} 同款)。
   .vue-slider {
-    width: 100%;
+    flex: 1;
   }
   // [B-63改/B67-BUG-1] 睡眠滑条：已填充段蓝色；轨道用更明显的中性灰(原 0.4 在浅色下几乎看不见)
   //   + 圆角；滑条本体 8px(原默认 4px 发丝线看不到也拖不准)。::v-deep 仅作用于睡眠滑条。
