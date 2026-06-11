@@ -89,7 +89,10 @@
 
     <!-- [A-23] 订阅列表（一级界面）。节目详情已拆为 /library/podcast/:feedUrlEncoded 独立路由，
          < > 自然作为浏览器前进后退使用 -->
-    <div class="podcast-grid" :class="{ resizing: isResizing }">
+    <div
+      class="podcast-grid"
+      :class="{ resizing: isResizing, scrolling: isScrolling }"
+    >
       <div v-if="loaded && !sortedPodcasts.length" class="empty-tip">
         还没有订阅。点击右上角 + 号添加 RSS 链接或导入文件。
       </div>
@@ -105,7 +108,7 @@
           <!-- [B-44] 封面虚化光晕：所有位置封面统一具备"背景的那个光" -->
           <div
             class="cover-shadow"
-            :style="{ backgroundImage: `url(${p.coverUrl})` }"
+            :style="{ backgroundImage: `url(${haloBg(p)})` }"
           ></div>
           <div class="cover-wrap">
             <PodImage class="cover" :src="p.coverUrl" @error="onCoverError" />
@@ -249,6 +252,7 @@ import {
 } from '@/utils/podcast/service';
 import { getPodcastListenSummary } from '@/utils/podcast/listening';
 import { getLastListenedByPodcast } from '@/utils/podcast/db';
+import { ensureTinyCover } from '@/utils/podcast/coverHalo';
 import SvgIcon from '@/components/SvgIcon.vue';
 
 // [A-28] 取一档节目最新一集的 pubTime（用于"节目更新时间"排序）
@@ -318,6 +322,12 @@ export default {
       // [S 级 bug 修] 窗口缩放时禁用 transition，避免大量 .podcast-card 动画排队卡顿
       isResizing: false,
       resizeTimer: null,
+      // [B-71/H2] 滚动期间禁用封面光晕的 hover 形变(同 .resizing 思路)，避免卡片滑过指针时
+      //   大位图光晕连环重光栅化 → 滚动卡顿。滚动停 150ms 复位。
+      isScrolling: false,
+      scrollTimer: null,
+      // [B-71/H1] 封面光晕降采样底图：coverUrl -> 64px 小图 dataURL（异步填充，未就绪先用原图兜底）
+      haloMap: {},
     };
   },
   computed: {
@@ -358,6 +368,13 @@ export default {
   mounted() {
     // [S 级 bug 修] 窗口缩放监听，加 .resizing 暂时禁用动画
     window.addEventListener('resize', this.onWinResize);
+    // [B-71/H2] 滚动监听挂在外层滚动容器 <main>(内层滚动、不冒泡 window)，加 .scrolling 暂禁光晕 hover 形变
+    this._scrollEl = this.$el && this.$el.closest('main');
+    if (this._scrollEl) {
+      this._scrollEl.addEventListener('scroll', this.onMainScroll, {
+        passive: true,
+      });
+    }
   },
   beforeDestroy() {
     this.closePlusMenu();
@@ -365,6 +382,10 @@ export default {
     this.closeSortMenu();
     window.removeEventListener('resize', this.onWinResize);
     if (this.resizeTimer) clearTimeout(this.resizeTimer);
+    if (this._scrollEl) {
+      this._scrollEl.removeEventListener('scroll', this.onMainScroll);
+    }
+    if (this.scrollTimer) clearTimeout(this.scrollTimer);
   },
   activated() {
     this.loadPodcasts();
@@ -433,6 +454,7 @@ export default {
         lastListenedAt: lastMap[p.id] || 0,
       }));
       this.loaded = true;
+      this.primeHalos(); // [B-71/H1] 后台把各封面降采样成光晕小图
       // [B-51] 写缓存供下次冷启动秒显（避免第一次打开短暂空白）
       try {
         localStorage.setItem(
@@ -758,6 +780,33 @@ export default {
       this.resizeTimer = setTimeout(() => {
         this.isResizing = false;
       }, 250);
+    },
+    // [B-71/H2] 滚动期间打 .scrolling（CSS 里据此暂禁光晕 hover 形变），停 150ms 复位。
+    //   isScrolling 由 if 守卫只翻一次，复位定时器滚动期间不断重置 → 不抖动响应式。
+    onMainScroll() {
+      if (!this.isScrolling) this.isScrolling = true;
+      if (this.scrollTimer) clearTimeout(this.scrollTimer);
+      this.scrollTimer = setTimeout(() => {
+        this.isScrolling = false;
+      }, 150);
+    },
+    // [B-71/H1] 光晕底图：小图就绪用小图(64px)，未就绪先用原图兜底（光晕不闪空、就绪后无感升级）
+    haloBg(p) {
+      const url = p && p.coverUrl;
+      if (!url) return '';
+      return this.haloMap[url] || url;
+    },
+    // [B-71/H1] 后台把当前列表各封面降采样入 haloMap（模块级缓存去重，重进页不重算）
+    primeHalos() {
+      (this.podcasts || []).forEach(p => {
+        const url = p && p.coverUrl;
+        if (!url || this.haloMap[url]) return;
+        ensureTinyCover(url).then(tiny => {
+          if (tiny && this.haloMap[url] !== tiny) {
+            this.$set(this.haloMap, url, tiny);
+          }
+        });
+      });
     },
   },
 };
@@ -1139,6 +1188,19 @@ export default {
 .podcast-grid.resizing * {
   transition: none !important;
   animation: none !important;
+}
+// [B-71/H2] 滚动期间：把光晕 hover 形变(blur/scale/top 三属性 0.25s 过渡)按住在基态，
+//   避免卡片滑过指针时大位图光晕连环重光栅化拖垮帧率。选择器多一个 .scrolling → 特异性更高，
+//   盖过 .podcast-card:hover .cover-shadow。滚动停 150ms 后 .scrolling 摘除，hover 辉光恢复。
+.podcast-grid.scrolling {
+  .cover-shadow {
+    transition: none !important;
+  }
+  .podcast-card:hover .cover-shadow {
+    filter: blur(16px) opacity(0.45);
+    transform: scale(0.9);
+    top: 10px;
+  }
 }
 .empty-tip {
   grid-column: 1 / -1;
