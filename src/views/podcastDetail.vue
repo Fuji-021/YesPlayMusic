@@ -288,6 +288,7 @@ import {
 } from '@/utils/podcast/downloads';
 import { stripHtmlToText } from '@/utils/podcast/sanitizeHtml';
 import { getEpisodeCache, setEpisodeCache } from '@/utils/podcast/episodeCache';
+import { prefetchShownotesForEpisodes } from '@/utils/podcast/shownotesEnrich';
 import SvgIcon from '@/components/SvgIcon.vue';
 
 export default {
@@ -486,6 +487,9 @@ export default {
       this.podcast = podcast;
       this.episodes = mapped;
       setEpisodeCache(feedUrl, { podcast, episodes: mapped }); // [B-77/L1] 写缓存供下次秒显
+      // [B-83/预取] 后台限流补全本档"被小宇宙截断"的单集完整文稿(每集一次、已补全的跳过)，
+      //   使你点进单集时完整内容已在本地、秒显无闪。失败静默，不影响列表。
+      prefetchShownotesForEpisodes(mapped).catch(() => {});
       if (cached) this._startHydration();
       // 命中过：仅更新数据 + 续水合，不再复位滚动位
       else this._presentEpisodes(); // 未命中：首次复位渲染量/滚顶/水合

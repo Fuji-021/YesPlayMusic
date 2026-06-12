@@ -8,6 +8,8 @@
 //
 // 任何环节失败一律静默返回 ''（降级回原截断描述），不打断单集详情渲染。
 
+import { updateEpisode } from './db';
+
 const electron =
   process.env.IS_ELECTRON === true ? window.require('electron') : null;
 const ipcRenderer = electron?.ipcRenderer ?? null;
@@ -55,4 +57,55 @@ export async function fetchXyzShownotes(episodeLink) {
   }
   const ep = j && j.props && j.props.pageProps && j.props.pageProps.episode;
   return ep && typeof ep.shownotes === 'string' ? ep.shownotes : '';
+}
+
+// 一个 episode 是否"小宇宙截断、值得补全"。
+function isEnrichCandidate(ep) {
+  if (!ep || ep.xyzFull) return false;
+  if (!xyzEpisodeUrl(ep.link)) return false;
+  const cur = ep.description || '';
+  return looksTruncated(cur) || cur.length < 1200;
+}
+
+// 补全单个 episode：抓完整 shownotes、命中更长文稿则写库(打 xyzFull)，返回完整 description；
+//   非候选 / 失败 / 不更长 → 返回 ''(调用方据此决定是否替换视图)。
+export async function enrichEpisodeShownotes(ep) {
+  if (!isEnrichCandidate(ep)) return '';
+  const cur = ep.description || '';
+  const full = await fetchXyzShownotes(ep.link);
+  if (!full || full.length <= cur.length) return '';
+  try {
+    await updateEpisode(ep.id, { description: full, xyzFull: true });
+  } catch (e) {
+    /* 持久化失败不影响本次返回，调用方仍可用于显示 */
+  }
+  return full;
+}
+
+// [B-83→预取] 列表级后台预取：进节目详情时，把该档"截断未补全"的单集限流抓好写库，
+//   使用户点进单集时完整内容已在本地、秒显无闪。每集只抓一次(xyzFull)、失败静默。
+export async function prefetchShownotesForEpisodes(episodes, opts) {
+  const o = opts || {};
+  const limit = o.limit || 30; // 单次最多预取多少集(优先列表靠前=最新)
+  const concurrency = o.concurrency || 2; // 并发抓取数(克制，别打爆小宇宙)
+  const targets = (episodes || []).filter(isEnrichCandidate).slice(0, limit);
+  if (!targets.length) return 0;
+  let idx = 0;
+  let done = 0;
+  const worker = async () => {
+    while (idx < targets.length) {
+      const ep = targets[idx++];
+      try {
+        const full = await enrichEpisodeShownotes(ep);
+        if (full && typeof o.onEnriched === 'function')
+          o.onEnriched(ep.id, full);
+        if (full) done++;
+      } catch (e) {
+        /* 单集失败不影响其它 */
+      }
+    }
+  };
+  const n = Math.min(concurrency, targets.length);
+  await Promise.all(Array.from({ length: n }, () => worker()));
+  return done;
 }

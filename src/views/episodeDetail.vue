@@ -99,24 +99,23 @@
     <div v-if="episode" class="notes" @click="onNotesClick">
       <!-- sanitizeHtml 已清洗 RSS description（白名单 tag + 移除 on* + 强制 http 协议）；
            processedNotes 在其基础上把纯文本时间戳 HH:MM:SS/MM:SS 包成可点 .ts-seek（仅文本节点，不碰属性）。 -->
+      <!-- [B-83] 小宇宙截断单集后台补全完整文稿期间显示占位，避免先闪截断版 -->
+      <div v-if="enriching" class="notes-loading">
+        <span class="spinner"></span>正在加载完整文稿…
+      </div>
       <!-- eslint-disable-next-line vue/no-v-html -->
-      <div v-if="processedNotes" v-html="processedNotes"></div>
+      <div v-else-if="processedNotes" v-html="processedNotes"></div>
       <div v-else class="empty">这一集没有提供 show notes / 节目简介。</div>
     </div>
   </div>
 </template>
 
 <script>
-import {
-  getPodcast,
-  getEpisode,
-  getEpisodeProgress,
-  updateEpisode,
-} from '@/utils/podcast/db';
+import { getPodcast, getEpisode, getEpisodeProgress } from '@/utils/podcast/db';
 import {
   looksTruncated,
   xyzEpisodeUrl,
-  fetchXyzShownotes,
+  enrichEpisodeShownotes,
 } from '@/utils/podcast/shownotesEnrich';
 import {
   getListenStats,
@@ -143,6 +142,8 @@ export default {
       showDeleteDlConfirm: false,
       // [B-63] 加入播放列表后的短暂高亮反馈
       justQueued: false,
+      // [B-83] 小宇宙截断单集正在后台抓完整文稿时，notes 区显示加载占位(不闪截断版)
+      enriching: false,
     };
   },
   computed: {
@@ -273,28 +274,30 @@ export default {
       const p = await getEpisodeProgress(this.episodeId).catch(() => null);
       this.progressSec = (p && p.position) || 0;
       this.listenStats = await getListenStats(this.episodeId).catch(() => null);
-      // [B-83] 简介疑似被小宇宙截断 → 按需抓单集页补全完整 shownotes(异步、不阻塞渲染)
-      this.enrichShownotesIfNeeded();
+      // [B-83/预取] 多数情况下完整文稿已被节目页后台预取(xyzFull=true)→ 这里直接秒显完整。
+      //   仅当"小宇宙截断且尚未补全"时，先挂「加载完整文稿」占位(绝不先闪截断版)、抓完再渲染。
+      const ep = this.episode;
+      const needEnrich =
+        !!ep &&
+        !ep.xyzFull &&
+        !!xyzEpisodeUrl(ep.link) &&
+        (looksTruncated(ep.description) ||
+          (ep.description || '').length < 1200);
+      this.enriching = needEnrich;
+      if (needEnrich) {
+        await this.enrichShownotesIfNeeded();
+        if (this.episode && this.episode.id === ep.id) this.enriching = false;
+      }
     },
-    // [B-83] 小宇宙截断节目：抓公开单集页的完整 shownotes 补全 description。
-    //   仅小宇宙链接、且当前简介带截断尾巴或明显偏短时才抓；命中更长文稿才替换并持久化
-    //   (打 xyzFull 标记，配合 upsertEpisodes 防降级，后台刷新不会再把它覆盖回截断版)。
+    // [B-83] 抓小宇宙单集页完整 shownotes 补全 description(命中更长才替换+持久化，逻辑在
+    //   enrichEpisodeShownotes 内)。抓取期间用户可能已切集 → 校验仍是同一集再替换视图。
     async enrichShownotesIfNeeded() {
       const ep = this.episode;
-      if (!ep || ep.xyzFull) return;
-      if (!xyzEpisodeUrl(ep.link)) return;
-      const cur = ep.description || '';
-      if (!looksTruncated(cur) && cur.length >= 1200) return;
-      const full = await fetchXyzShownotes(ep.link);
-      if (!full || full.length <= cur.length) return;
-      // 用户可能在抓取期间已切到别的单集 → 校验仍是同一集再写
-      if (!this.episode || this.episode.id !== ep.id) return;
-      this.$set(this.episode, 'description', full);
-      this.episode.xyzFull = true;
-      try {
-        await updateEpisode(ep.id, { description: full, xyzFull: true });
-      } catch (e) {
-        /* 持久化失败不影响本次显示 */
+      if (!ep) return;
+      const full = await enrichEpisodeShownotes(ep);
+      if (full && this.episode && this.episode.id === ep.id) {
+        this.$set(this.episode, 'description', full);
+        this.episode.xyzFull = true;
       }
     },
     play() {
@@ -744,6 +747,28 @@ export default {
   }
 }
 
+.notes-loading {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-size: 14px;
+  opacity: 0.6;
+  padding: 8px 0;
+  .spinner {
+    width: 14px;
+    height: 14px;
+    border: 2px solid var(--color-text);
+    border-top-color: transparent;
+    border-radius: 50%;
+    opacity: 0.7;
+    animation: notes-spin 0.7s linear infinite;
+  }
+}
+@keyframes notes-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
 .notes {
   font-size: 15px;
   line-height: 1.75;
