@@ -140,18 +140,6 @@ export default {
       const { totalWall } = await getListenStatsByPodcast('all');
       this.totalWall = totalWall;
     },
-    async loadRange() {
-      // [C] 并发守卫：锁定本次加载序号与 range，await 后失效则放弃，避免旧请求覆盖/存错键
-      const seq = (this._loadSeq = (this._loadSeq || 0) + 1);
-      const range = this.range;
-      const { totalWall, list } = await getListenStatsByPodcast(
-        range === 'week' ? 7 : 'all'
-      );
-      if (seq !== this._loadSeq) return;
-      this.rangeTotal = totalWall;
-      this.animateTo(list);
-      this.saveSnapshot(range, list);
-    },
     // [统计动画 v1 路线] 进入页面：以上次快照(各自宽度)为起点 → animateTo(fresh) 平滑过渡。
     //   留存条**同时**位移+伸缩(无等待)、新增条从左长出、离开条收走，即用户认可的"重排"动画。
     //   (v1=重排；v1.1=消残影；v1.2=去渐隐塌缩；v1.2.1=塌缩改纯CSS修顶部闪现；
@@ -206,6 +194,26 @@ export default {
         });
       });
       this.saveSnapshot(range, fresh.list);
+      // [统计动画 R9] 把本范围 fresh 存入内存缓存 + 后台预热另一范围 →
+      //   之后 setRange 切换即可"同步应用缓存"零 await 窗口，根治闪现/连点常驻(详见 setRange)。
+      (this._rangeCache = this._rangeCache || {})[range] = fresh;
+      this.prewarmRange(range === 'week' ? 'all' : 'week');
+    },
+    // [统计动画 R9] 后台预取某范围数据进内存缓存(失败静默)，供 setRange 同步切换。
+    prewarmRange(r) {
+      const cache = (this._rangeCache = this._rangeCache || {});
+      if (cache[r]) return;
+      getListenStatsByPodcast(r === 'week' ? 7 : 'all')
+        .then(d => {
+          cache[r] = d;
+        })
+        .catch(() => {});
+    },
+    // [统计动画 R9] 两份榜单是否实质不同(按 podcastId+wallSec)，决定后台校正要不要重渲。
+    rangeListChanged(a, b) {
+      const key = list =>
+        (list || []).map(x => x.podcastId + ':' + x.wallSec).join('|');
+      return key(a) !== key(b);
     },
     // [B-39] 异步提取每个节目封面主色填充矩形条（不阻塞渲染，到了再刷新该行）
     extractColors() {
@@ -297,7 +305,25 @@ export default {
       } catch (e) {
         /* 忽略 */
       }
-      await this.loadRange();
+      // [统计动画 R9] 数据供给层根治"差集节目闪现 / 连点常驻"（动画形态=黄金版，一字未动）：
+      //   ① 有缓存 → 同步 animateTo：await 窗口=0，切换当帧列表即正确，差集节目不再残留一帧(闪现)；
+      //   ② 再后台取 fresh：**过期请求也回填缓存**，不再白扔 → 连点不再因 seq 守卫饥饿而冻结列表(常驻)；
+      //   ③ 仅当本范围无缓存 或 数据实质变化时才用 fresh 校正，否则零重渲。
+      const seq = (this._loadSeq = (this._loadSeq || 0) + 1);
+      const cache = (this._rangeCache = this._rangeCache || {});
+      const cached = cache[r];
+      if (cached) {
+        this.rangeTotal = cached.totalWall;
+        this.animateTo(cached.list);
+      }
+      const fresh = await getListenStatsByPodcast(r === 'week' ? 7 : 'all');
+      cache[r] = fresh; // 过期与否都回填缓存（供下次切换同步用）
+      if (seq !== this._loadSeq) return; // 已被更晚的切换接替 → 不提交本次（防串台）
+      if (!cached || this.rangeListChanged(fresh.list, cached.list)) {
+        this.rangeTotal = fresh.totalWall;
+        this.animateTo(fresh.list);
+      }
+      this.saveSnapshot(r, fresh.list);
     },
     barColor(item) {
       // [B-41] 封面主色 → 低饱和纯色 + 半透明（透明度低于实色封面，参考小宇宙：
