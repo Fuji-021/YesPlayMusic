@@ -13,6 +13,13 @@ function text(el, name) {
   return node?.textContent?.trim() || '';
 }
 
+// [B-82] 取更完整(更长)的一份文本，用于 content:encoded(完整) vs description(可能截断)。
+function longerText(a, b) {
+  const sa = a || '';
+  const sb = b || '';
+  return sa.length >= sb.length ? sa : sb;
+}
+
 // 取带命名空间的标签，DOMParser 解析 RSS 时这些 itunes:* 标签
 // localName 直接是 'image' / 'duration'，我们手动按 localName 匹配。
 function textNS(el, localName) {
@@ -96,7 +103,13 @@ export function parseRss(xmlText, feedUrl) {
         duration: parseDuration(textNS(item, 'duration')),
         pubDate: text(item, 'pubDate'),
         pubTime: Date.parse(text(item, 'pubDate')) || 0,
-        description: text(item, 'description'),
+        // [B-82] 完整 shownotes 优先取 <content:encoded>(localName=encoded)，
+        //   回退 <description>。小宇宙等源的 <description> 是带"去小宇宙看完整"尾巴的
+        //   截断版，完整富文本在 content:encoded；取更长的一份避免简介不完整。
+        description: longerText(
+          textNS(item, 'encoded'),
+          text(item, 'description')
+        ),
         coverUrl: epCover,
         link: text(item, 'link'),
       };
