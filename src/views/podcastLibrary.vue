@@ -108,6 +108,7 @@
         class="podcast-card"
         :class="{ 'unsub-mode': unsubModeId === p.id }"
         @click="onCardClick(p)"
+        @mouseenter="onCardHover(p)"
         @contextmenu.prevent="onCardContextMenu($event, p)"
       >
         <div class="cover-box">
@@ -267,7 +268,11 @@ import {
 } from '@/utils/podcast/service';
 import { getPodcastListenSummary } from '@/utils/podcast/listening';
 import { getLastListenedByPodcast, updatePodcast } from '@/utils/podcast/db';
-import { nasPodcastSet, normFeedUrl } from '@/utils/podcast/nasSource';
+import {
+  nasPodcastSet,
+  normFeedUrl,
+  prefetchNasPodcast,
+} from '@/utils/podcast/nasSource';
 import { ensureTinyCover } from '@/utils/podcast/coverHalo';
 import SvgIcon from '@/components/SvgIcon.vue';
 
@@ -437,6 +442,15 @@ export default {
     // [NAS] 该节目在 NAS 上是否有归档(决定是否显示 wifi 标识)。
     nasOn(p) {
       return !!(p && p.id && this.nasPodSet.has(normFeedUrl(p.id)));
+    },
+    // [NAS·L2 预取] 悬停节目卡即后台暖该档 NAS 单集映射 → 点进详情页第一刻 wifi 标识即在(不再等加载)。
+    //   每档只暖一次(dedup)；prefetchNasPodcast 内部 NAS 未启用/不可用则 no-op。
+    onCardHover(p) {
+      if (!p || !p.id) return;
+      if (!this._nasHovered) this._nasHovered = new Set();
+      if (this._nasHovered.has(p.id)) return;
+      this._nasHovered.add(p.id);
+      prefetchNasPodcast(p.id);
     },
     // [B-35] 该节目下载进度（0-100），无下载任务返 -1。
     //   episodeId 形如 `${feedUrl}::${guid}`，p.id = feedUrl，按前缀聚合属于该节目的下载中单集。
