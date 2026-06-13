@@ -673,7 +673,16 @@ export default class {
         //    (未启用/不可用同步返回 null、零等待)，失败/查不到也返回 null → 直落 ③CDN，绝不阻断播放。
         try {
           const nasUrl = await resolveNasUrl(track);
-          if (nasUrl) return nasUrl;
+          if (nasUrl) {
+            // [NAS·临时验证 R1] 命中 NAS 时弹一次 toast，便于无 DevTools 肉眼确认音源；
+            //   接入状态图标(router-wifi-alt)后**删除此 toast**。
+            try {
+              store.dispatch('showToast', '🛜 本集音源：NAS');
+            } catch (e2) {
+              /* ignore */
+            }
+            return nasUrl;
+          }
         } catch (e) {
           /* 任何异常都落 CDN，保证 NAS 永不影响既有播放 */
         }

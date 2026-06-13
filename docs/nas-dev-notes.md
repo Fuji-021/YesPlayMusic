@@ -57,3 +57,20 @@
 - **P2** 设置页（~80 行）→ 配置→生效→关闭→回现状，全程无重启。
 - **P3** 中途断联：NAS 源 howler 错误 → CDN 重建 + seek 续播（~60 行，**仅 NAS 源激活**）→ 播放中停 ABS，5s 内续播、进度误差 <2s。
 - **P4** 合并验收：禁碰清单 + 双态回归全过 → 合并 master，开关仍默认关。
+
+## 7. UI：NAS 连接状态图标（用户 2026-06-13 规格，**功能跑通后再实现**）
+
+- 图标：`router-wifi-alt.svg`（已拷入 `src/assets/icons/`，注意接入前确认其 path 用 `fill:currentColor` 才能随 `color` 变色）。
+- 位置：播放条**标记(打点)键的右边**（Player.vue `.mark-control` 之后）。
+- 三态（映射 nasSource 熔断状态 + 速度）：
+  - **绿 + 缓慢闪动** = 连上 NAS 且在线（`nasAlive=true` 且正常速度）；
+  - **黄 + 闪动** = 连上但慢（探测/取流偏慢，阈值待定）；
+  - **红 + 不动** = 断联（`nasAlive=false`）。
+- **功能开关(总开关)**：用户尚未决定要不要做，**先记着**，不急。
+- 现状：P1 测试期用**临时 toast**「🛜 本集音源：NAS」(Player.js ②级) + `window.podNas` 控制台入口替代可视化；二者在图标接入时一并删除。
+
+## 8. P1 临时调试物（接 UI 时清理）
+
+- `Player.js` ②级命中 NAS 的 `showToast('🛜 本集音源：NAS')`——临时，删。
+- `main.js` 的 `window.podNas`（setConfig/test/status/getConfig）——P2 设置页接管后删。
+- `nas-config.json`（userData，非 repo）——用户配置，不删。
