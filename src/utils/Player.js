@@ -1306,6 +1306,18 @@ export default class {
       store.dispatch('showToast', '该单集没有音频地址');
       return;
     }
+    // [UX] 从别处再点"正在播放的同一单集" → 不打断、不重建(否则会重新缓冲/回跳进度)。
+    //   仅暂停态时恢复播放；点按反馈由各调用方组件自行处理，与此无关。
+    //   startAt 存在(show notes 时间戳跳转)时不短路，交由正常路径 seek。
+    if (
+      (startAt === null || startAt === undefined) &&
+      this._currentTrack &&
+      this._currentTrack.podcastEpisodeId === episode.id &&
+      this._howler
+    ) {
+      if (!this._playing) this.play();
+      return Promise.resolve(true);
+    }
     // [A-24 改] 切换前：旧曲（如果未播完）放回队列头部，下次还能播
     // _justEnded=true 表示当前是 onend 自动续播，旧曲已播完，不入队
     const oldTrack = this._currentTrack;

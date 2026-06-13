@@ -360,9 +360,8 @@
       <div class="item">
         <div class="left">
           <!-- [设置] 彩虹猫=吉祥物：进度条样式开关，标题直接用吉祥物 gif(后续会加更多样式) -->
-          <div class="title nyancat-title">
+          <div class="title nyancat-title" title="进度条彩虹猫样式">
             <img src="/img/logos/nyancat.gif" alt="进度条彩虹猫样式" />
-            <span>进度条彩虹猫</span>
           </div>
         </div>
         <div class="right">
@@ -624,6 +623,7 @@ import {
   listNasLibraries,
   testNasConnection,
   nasStatus,
+  initNas,
 } from '@/utils/podcast/nasSource';
 
 const electron =
@@ -1310,9 +1310,15 @@ export default {
       });
       if (r && r.ok) {
         const hadActive = !!this.nas.activeProfileId;
+        const wasEditingActive =
+          d.editId && d.editId === this.nas.activeProfileId;
         this.closeNasDialog();
         await this.loadNas();
-        if (!hadActive && r.id) await this.connectProfile(r.id);
+        if (!hadActive && r.id) {
+          await this.connectProfile(r.id); // 首档自动激活(内含 initNas 刷新)
+        } else if (wasEditingActive) {
+          await initNas(); // [修] 编辑的是当前档(如改名) → 刷新 toast 用的 activeName，否则提示仍显旧名
+        }
         this.showToast('已保存 NAS 连接');
       } else {
         d.testMsg = '保存失败：' + ((r && r.error) || '');
@@ -1725,11 +1731,13 @@ input[type='number'] {
   color: var(--color-text);
   font-weight: 600;
   .author {
-    // [设置] 署名 DESIGN BY FUJII：粗衬线字体
+    // [设置] 署名 DESIGN BY FUJII：衬线 + 略小略细 + 微斜(italic 一点点)
     font-family: Georgia, 'Times New Roman', 'Noto Serif SC', 'Songti SC', serif;
-    font-weight: 800;
-    font-size: 1.05rem;
-    letter-spacing: 1px;
+    font-weight: 600;
+    font-size: 0.84rem;
+    font-style: italic;
+    letter-spacing: 0.5px;
+    opacity: 0.85;
   }
   .version {
     font-size: 0.88rem;
