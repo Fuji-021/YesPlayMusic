@@ -65,6 +65,7 @@
 import SvgIcon from '@/components/SvgIcon.vue';
 import { subscribePodcast, hiResLogo } from '@/utils/podcast/discover';
 import { deletePodcast } from '@/utils/podcast/service';
+import { getPodcast } from '@/utils/podcast/db';
 
 export default {
   name: 'DiscoverCard',
@@ -79,6 +80,8 @@ export default {
       outsideListener: null,
       keyListener: null,
       autoTimer: null,
+      // 已订阅时从本地 DB 读到的封面（覆盖目录 logo，保证与详情/我的订阅一致）
+      dbCover: '',
     };
   },
   computed: {
@@ -110,7 +113,25 @@ export default {
       return '';
     },
     cover() {
-      return hiResLogo(this.podcast.logoURL);
+      // 已订阅节目优先用本地(DB)封面，与详情/我的订阅一致；否则用目录 logo。
+      //   目录源 logoURL 可能是旧封面（节目换封面后），会与详情页对不上（实测《思文，败类》）。
+      return this.dbCover || hiResLogo(this.podcast.logoURL);
+    },
+  },
+  watch: {
+    // 已订阅时拉本地封面覆盖目录 logo（feedUrl 由 subscribedMap 响应式解析；订阅/取消即时跟随）
+    feedUrl: {
+      immediate: true,
+      handler(f) {
+        this.dbCover = '';
+        if (!f) return;
+        getPodcast(f)
+          .then(p => {
+            if (p && p.coverUrl && f === this.feedUrl)
+              this.dbCover = p.coverUrl;
+          })
+          .catch(() => {});
+      },
     },
   },
   beforeDestroy() {
@@ -311,14 +332,14 @@ export default {
   z-index: 1;
   width: 100%;
   height: 100%;
-  border-radius: 12px;
+  border-radius: var(--radius-cover);
   overflow: hidden; // 裁切封面 → 加载/右键遮罩 inset:0 盖满，不留一圈
 }
 .cover {
   position: relative;
   width: 100%;
   height: 100%;
-  border-radius: 12px;
+  // 圆角交给 .cover-wrap 的 overflow:hidden 裁；内层不再重复 radius（消双重圆角发丝缝）
   object-fit: cover;
   background: var(--color-secondary-bg);
   transition: filter 0.25s;
@@ -366,7 +387,7 @@ export default {
   position: absolute;
   inset: 0;
   z-index: 3;
-  border-radius: 12px;
+  border-radius: var(--radius-cover);
   background: transparent;
   display: flex;
   flex-direction: column;
@@ -397,7 +418,7 @@ export default {
   position: absolute;
   inset: 0;
   z-index: 4;
-  border-radius: 12px;
+  border-radius: var(--radius-cover);
   background: rgba(0, 0, 0, 0.42);
   display: flex;
   align-items: center;

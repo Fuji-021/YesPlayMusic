@@ -169,6 +169,7 @@
           ><span
             v-if="nasOn(p)"
             class="nas-dot"
+            :style="nasGlow(p.id)"
             title="NAS 上有此节目（音源就近）"
             ><svg-icon icon-class="wifi"
           /></span>
@@ -444,6 +445,19 @@ export default {
     // [NAS] 该节目在 NAS 上是否有归档(决定是否显示 wifi 标识)。
     nasOn(p) {
       return !!(p && p.id && this.nasPodSet.has(normFeedUrl(p.id)));
+    },
+    // [呼吸灯 v2.0] 由稳定 id 派生「周期 + 负相位」两个确定值 → 同点每次渲染恒定、彼此不同，
+    //   萤火虫式错落呼吸(不齐步)。必须 id 派生(非 Math.random)：列表重渲(排序/水合)不摇号、不闪。
+    nasGlow(id) {
+      let h = 0;
+      const s = String(id || '');
+      for (let i = 0; i < s.length; i++) h = (h * 31 + s.charCodeAt(i)) >>> 0;
+      const dur = [3.2, 3.8, 4.4, 5.0][h % 4]; // 4 档非谐波周期，缓慢飘移、几乎不全体重合
+      const delay = -(((h >> 3) % Math.round(dur * 100)) / 100); // 负相位铺满各自周期
+      return {
+        animationDuration: dur + 's',
+        animationDelay: delay.toFixed(2) + 's',
+      };
     },
     // [NAS·L2 预取] 悬停节目卡即后台暖该档 NAS 单集映射 → 点进详情页第一刻 wifi 标识即在(不再等加载)。
     //   每档只暖一次(dedup)；prefetchNasPodcast 内部 NAS 未启用/不可用则 no-op。
@@ -1379,7 +1393,7 @@ export default {
     z-index: 1;
     width: 100%;
     height: 100%;
-    border-radius: 12px;
+    border-radius: var(--radius-cover);
     overflow: hidden;
     background: var(--color-secondary-bg);
   }
@@ -1447,28 +1461,34 @@ export default {
   .dot-discover {
     background: #f1c40f; // 黄 = 首页发现页添加
   }
-  // [NAS] "NAS 上有此节目"标识：小 wifi 图标，略低饱和绿 + 呼吸(与 navbar 状态图标同节奏)
+  // [NAS] "NAS 上有此节目"标识：小 wifi 图标，绿(饱和与 navbar 同步) + 萤火虫式呼吸(nasGlow 按点错相位/微变周期)
   .nas-dot {
     display: inline-flex;
     align-items: center;
     margin-left: 5px;
     vertical-align: middle;
-    color: #3fa06a;
-    animation: nas-breathe 2.6s ease-in-out infinite;
+    color: #1db954;
+    // 基础周期 3.6s 为兜底；nasGlow 的 inline animation-duration/delay 会按点覆盖
+    animation: nas-breathe 3.6s ease-in-out infinite;
     .svg-icon {
       width: 13px;
       height: 13px;
     }
   }
 }
-// [NAS] 呼吸灯（节目/单集 NAS 标识共用；与 navbar 状态图标同节奏）
+// [NAS][呼吸灯 v2.0] 柔和不对称曲线：谷 .5 缓升 → 40% 处达峰 → 缓降占比更长(仿苹果睡眠灯高斯/偏暗 duty)。
+//   不用 linear()(Chromium91 不支持)；周期由各点 nasGlow 的 inline 值驱动(错相位+微变)。
 @keyframes nas-breathe {
-  0%,
-  100% {
-    opacity: 1;
+  0% {
+    opacity: 0.5;
+    animation-timing-function: cubic-bezier(0.45, 0, 0.55, 1);
   }
-  50% {
-    opacity: 0.45;
+  40% {
+    opacity: 1;
+    animation-timing-function: cubic-bezier(0.45, 0, 0.55, 1);
+  }
+  100% {
+    opacity: 0.5;
   }
 }
 // [B-46 / D-3] 新单集角标（红底白字，封面右上角）
@@ -1541,7 +1561,7 @@ export default {
   .cover-lg {
     width: 180px;
     height: 180px;
-    border-radius: 16px;
+    border-radius: var(--radius-cover);
     object-fit: cover;
     flex-shrink: 0;
     background: var(--color-secondary-bg);

@@ -293,7 +293,7 @@ h1 {
   .cover {
     width: 56px;
     height: 56px;
-    border-radius: 8px;
+    border-radius: var(--radius-cover-sm);
     object-fit: cover;
     background: var(--color-secondary-bg);
     flex-shrink: 0;

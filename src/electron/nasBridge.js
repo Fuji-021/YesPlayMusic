@@ -12,7 +12,9 @@ import axios from 'axios';
 import { ipcMain } from 'electron';
 import Store from 'electron-store';
 
-const store = new Store({ name: 'nas-config' });
+// defaults.enabled=false：显式保证「未配置/全新安装默认关」（铁律）。
+//   仅在 key 缺失时生效——已存在的配置(含用户已开的档)原样保留，不被覆盖。
+const store = new Store({ name: 'nas-config', defaults: { enabled: false } });
 
 const UA = 'PodPlayerNAS/0.1';
 const ITEMS_TTL = 10 * 60 * 1000; // 库 feedUrl→itemId 映射缓存

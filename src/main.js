@@ -118,3 +118,17 @@ new Vue({
   router,
   render: h => h(App),
 }).$mount('#app');
+
+// [启动页] 启动后按用户设置跳转：startupPage==='library' → 我的订阅(/library)，否则保持首页(/)。
+//   纯渲染端实现(background.js 固定加载首页 /，这里一次性 replace)、HMR 友好、不动主进程。
+//   用全新 key startupPage(缺省 home)，不复用旧 showLibraryDefault(老值多为 true、会误跳)。
+//   onReady 在初始路由解析后触发一次；.catch 吞掉 NavigationDuplicated。
+router.onReady(() => {
+  if (
+    store.state.settings &&
+    store.state.settings.startupPage === 'library' &&
+    router.currentRoute.path === '/'
+  ) {
+    router.replace('/library').catch(() => {});
+  }
+});

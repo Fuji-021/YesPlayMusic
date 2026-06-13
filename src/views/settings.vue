@@ -68,62 +68,14 @@
           </select>
         </div>
       </div>
-      <div class="item">
-        <div class="left">
-          <div class="title">
-            {{ $t('settings.MusicGenrePreference.text') }}
-          </div>
-        </div>
-        <div class="right">
-          <select v-model="musicLanguage">
-            <option value="all">{{
-              $t('settings.MusicGenrePreference.none')
-            }}</option>
-            <option value="zh">{{
-              $t('settings.MusicGenrePreference.mandarin')
-            }}</option>
-            <option value="ea">{{
-              $t('settings.MusicGenrePreference.western')
-            }}</option>
-            <option value="jp">{{
-              $t('settings.MusicGenrePreference.japanese')
-            }}</option>
-            <option value="kr">{{
-              $t('settings.MusicGenrePreference.korean')
-            }}</option>
-          </select>
-        </div>
-      </div>
+      <!-- [删] 「音乐语种偏好」(网易云推荐语种) + 「音质选择」(网易云码率)：与播客无关、本就没法用，已删。 -->
 
-      <!-- <h3>音质</h3> -->
-      <div class="item">
-        <div class="left">
-          <div class="title"> {{ $t('settings.musicQuality.text') }} </div>
-        </div>
-        <div class="right">
-          <select v-model="musicQuality">
-            <option value="128000">
-              {{ $t('settings.musicQuality.low') }} - 128Kbps
-            </option>
-            <option value="192000">
-              {{ $t('settings.musicQuality.medium') }} - 192Kbps
-            </option>
-            <option value="320000">
-              {{ $t('settings.musicQuality.high') }} - 320Kbps
-            </option>
-            <option value="flac">
-              {{ $t('settings.musicQuality.lossless') }} - FLAC
-            </option>
-            <option value="999000">Hi-Res</option>
-          </select>
-        </div>
-      </div>
       <div v-if="isElectron" class="item">
         <div class="left">
           <div class="title"> {{ $t('settings.deviceSelector') }} </div>
         </div>
         <div class="right">
-          <select v-model="outputDevice">
+          <select v-model="outputDevice" :title="currentOutputDeviceLabel">
             <option
               v-for="device in allOutputDevices"
               :key="device.deviceId"
@@ -213,43 +165,8 @@
         </div>
       </div>
 
-      <h3>{{ $t('settings.customization') }}</h3>
-      <div class="item">
-        <div class="left">
-          <div class="title">
-            {{
-              isLastfmConnected
-                ? `已连接到 Last.fm (${lastfm.name})`
-                : '连接 Last.fm '
-            }}</div
-          >
-        </div>
-        <div class="right">
-          <button v-if="isLastfmConnected" @click="lastfmDisconnect()"
-            >断开连接
-          </button>
-          <button v-else @click="lastfmConnect()"> 授权连接 </button>
-        </div>
-      </div>
-      <div v-if="isElectron" class="item">
-        <div class="left">
-          <div class="title">
-            {{ $t('settings.enableDiscordRichPresence') }}</div
-          >
-        </div>
-        <div class="right">
-          <div class="toggle">
-            <input
-              id="enable-discord-rich-presence"
-              v-model="enableDiscordRichPresence"
-              type="checkbox"
-              name="enable-discord-rich-presence"
-            />
-            <label for="enable-discord-rich-presence"></label>
-          </div>
-        </div>
-      </div>
-
+      <!-- [§12] 「自定义」段(连接 Last.fm 听歌 scrobble + Discord Rich Presence「正在听」)=
+           网易云音乐专属、与播客无关，已删；NAS 入口为独立的「NAS 就近音源」段。 -->
       <h3>{{ $t('settings.others') }}</h3>
       <div v-if="isElectron && !isMac" class="item">
         <div class="left">
@@ -287,76 +204,22 @@
         </div>
       </div>
 
+      <!-- [启动页] 启动后显示：首页 / 我的订阅 二选一。原 YesPlayMusic「启动后显示音乐库」布尔开关，
+           改造为播客语义的二选一；纯渲染端实现(main.js onReady 按 settings.showLibraryDefault redirect)。 -->
       <div v-if="isElectron" class="item">
         <div class="left">
-          <div class="title"> {{ $t('settings.showLibraryDefault') }}</div>
+          <div class="title">启动后显示</div>
         </div>
         <div class="right">
-          <div class="toggle">
-            <input
-              id="show-library-default"
-              v-model="showLibraryDefault"
-              type="checkbox"
-              name="show-library-default"
-            />
-            <label for="show-library-default"></label>
-          </div>
+          <select v-model="startupPageChoice">
+            <option value="home">首页</option>
+            <option value="library">我的订阅</option>
+          </select>
         </div>
       </div>
 
-      <div class="item">
-        <div class="left">
-          <div class="title">
-            {{ $t('settings.showPlaylistsByAppleMusic') }}</div
-          >
-        </div>
-        <div class="right">
-          <div class="toggle">
-            <input
-              id="show-playlists-by-apple-music"
-              v-model="showPlaylistsByAppleMusic"
-              type="checkbox"
-              name="show-playlists-by-apple-music"
-            />
-            <label for="show-playlists-by-apple-music"></label>
-          </div>
-        </div>
-      </div>
-
-      <div class="item">
-        <div class="left">
-          <div class="title">{{ $t('settings.subTitleDefault') }}</div>
-        </div>
-        <div class="right">
-          <div class="toggle">
-            <input
-              id="sub-title-default"
-              v-model="subTitleDefault"
-              type="checkbox"
-              name="sub-title-default"
-            />
-            <label for="sub-title-default"></label>
-          </div>
-        </div>
-      </div>
-
-      <div class="item">
-        <div class="left">
-          <div class="title">{{ $t('settings.enableReversedMode') }}</div>
-        </div>
-        <div class="right">
-          <div class="toggle">
-            <input
-              id="enable-reversed-mode"
-              v-model="enableReversedMode"
-              type="checkbox"
-              name="enable-reversed-mode"
-            />
-            <label for="enable-reversed-mode"></label>
-          </div>
-        </div>
-      </div>
-
+      <!-- [§12] 已删 3 个网易云音乐专属开关：Apple Music 歌单(showPlaylistsByAppleMusic)、
+           双语字幕(subTitleDefault)、倒序播放(enableReversedMode) —— 播客无关。 -->
       <div class="item">
         <div class="left">
           <!-- [设置] 彩虹猫=吉祥物：进度条样式开关，标题直接用吉祥物 gif(后续会加更多样式) -->
@@ -377,67 +240,9 @@
         </div>
       </div>
 
-      <div v-if="isElectron">
-        <h3>代理</h3>
-        <div class="item">
-          <div class="left">
-            <div class="title"> 代理协议 </div>
-          </div>
-          <div class="right">
-            <select v-model="proxyProtocol">
-              <option value="noProxy"> 关闭代理 </option>
-              <option value="HTTP"> HTTP 代理 </option>
-              <option value="HTTPS"> HTTPS 代理 </option>
-              <!-- <option value="SOCKS"> SOCKS 代理 </option> -->
-            </select>
-          </div>
-        </div>
-        <div id="proxy-form" :class="{ disabled: proxyProtocol === 'noProxy' }">
-          <input
-            v-model="proxyServer"
-            class="text-input"
-            placeholder="服务器地址"
-            :disabled="proxyProtocol === 'noProxy'"
-          /><input
-            v-model="proxyPort"
-            class="text-input"
-            placeholder="端口"
-            type="number"
-            min="1"
-            max="65535"
-            :disabled="proxyProtocol === 'noProxy'"
-          />
-          <button @click="sendProxyConfig">更新代理</button>
-        </div>
-      </div>
-      <div v-if="isElectron">
-        <h3>Real IP</h3>
-        <div class="item">
-          <div class="left">
-            <div class="title"> Real IP </div>
-          </div>
-          <div class="right">
-            <div class="toggle">
-              <input
-                id="enable-real-ip"
-                v-model="enableRealIP"
-                type="checkbox"
-                name="enable-real-ip"
-              />
-              <label for="enable-real-ip"></label>
-            </div>
-          </div>
-        </div>
-        <div id="real-ip" :class="{ disabled: !enableRealIP }">
-          <input
-            v-model="realIP"
-            class="text-input"
-            placeholder="IP地址"
-            :disabled="!enableRealIP"
-          />
-        </div>
-      </div>
-
+      <!-- [§12] 已删「代理」+「Real IP」段：原为网易云 API 走代理 / 伪装 IP 绕区域限制；
+           本应用播客 RSS 走主进程直连、下载走 Node 原生 https(Clash TUN 路由)，不依赖此设置。
+           底层 proxy/realIP 配置逻辑保留(dormant)、仅移除 UI 配置项。 -->
       <div v-if="isElectron">
         <h3>快捷键</h3>
         <div class="item">
@@ -472,7 +277,7 @@
             :key="shortcut.id"
             class="row"
           >
-            <div class="col">{{ shortcut.name }}</div>
+            <div class="col">{{ shortcutName(shortcut.id) }}</div>
             <div class="col">
               <div
                 class="keyboard-input"
@@ -609,9 +414,8 @@
 <script>
 import { mapState, mapActions } from 'vuex';
 import { isLooseLoggedIn, doLogout } from '@/utils/auth';
-import { auth as lastfmAuth } from '@/api/lastfm';
-import { changeAppearance, bytesToSize } from '@/utils/common';
-import { countDBSize, clearDB } from '@/utils/db';
+import { changeAppearance } from '@/utils/common';
+import defaultShortcuts from '@/utils/shortcuts';
 import pkg from '../../package.json';
 // [NAS] 配置中心：多档连接 + 自动发现库 + 一键切换（token 仅主进程）
 import {
@@ -637,10 +441,6 @@ export default {
   name: 'Settings',
   data() {
     return {
-      tracksCache: {
-        size: '0KB',
-        length: 0,
-      },
       allOutputDevices: [
         {
           deviceId: 'default',
@@ -760,16 +560,12 @@ export default {
         this.$store.commit('changeLang', lang);
       },
     },
-    musicLanguage: {
-      get() {
-        return this.settings.musicLanguage ?? 'all';
-      },
-      set(value) {
-        this.$store.commit('updateSettings', {
-          key: 'musicLanguage',
-          value,
-        });
-      },
+    // [音频设备] 当前选中设备完整名称 → outputDevice select 的 :title 悬停看全名(框内省略号折叠时)。
+    currentOutputDeviceLabel() {
+      const d = this.allOutputDevices.find(
+        x => x.deviceId === this.outputDevice
+      );
+      return d ? this.$t(d.label) : '';
     },
     appearance: {
       get() {
@@ -799,25 +595,6 @@ export default {
         }
       },
     },
-    musicQuality: {
-      get() {
-        return this.settings.musicQuality ?? 320000;
-      },
-      set(value) {
-        if (value === this.settings.musicQuality) return;
-        this.$store.commit('changeMusicQuality', value);
-        this.clearCache();
-      },
-    },
-    lyricFontSize: {
-      get() {
-        if (this.settings.lyricFontSize === undefined) return 28;
-        return this.settings.lyricFontSize;
-      },
-      set(value) {
-        this.$store.commit('changeLyricFontSize', value);
-      },
-    },
     outputDevice: {
       get() {
         const isValidDevice = this.allOutputDevices.find(
@@ -837,30 +614,6 @@ export default {
         this.player.setOutputDevice();
       },
     },
-    enableUnblockNeteaseMusic: {
-      get() {
-        const value = this.settings.enableUnblockNeteaseMusic;
-        return value !== undefined ? value : true;
-      },
-      set(value) {
-        this.$store.commit('updateSettings', {
-          key: 'enableUnblockNeteaseMusic',
-          value,
-        });
-      },
-    },
-    showPlaylistsByAppleMusic: {
-      get() {
-        if (this.settings.showPlaylistsByAppleMusic === undefined) return true;
-        return this.settings.showPlaylistsByAppleMusic;
-      },
-      set(value) {
-        this.$store.commit('updateSettings', {
-          key: 'showPlaylistsByAppleMusic',
-          value,
-        });
-      },
-    },
     nyancatStyle: {
       get() {
         if (this.settings.nyancatStyle === undefined) return false;
@@ -869,65 +622,6 @@ export default {
       set(value) {
         this.$store.commit('updateSettings', {
           key: 'nyancatStyle',
-          value,
-        });
-      },
-    },
-    automaticallyCacheSongs: {
-      get() {
-        if (this.settings.automaticallyCacheSongs === undefined) return false;
-        return this.settings.automaticallyCacheSongs;
-      },
-      set(value) {
-        this.$store.commit('updateSettings', {
-          key: 'automaticallyCacheSongs',
-          value,
-        });
-        if (value === false) {
-          this.clearCache();
-        }
-      },
-    },
-    showLyricsTranslation: {
-      get() {
-        return this.settings.showLyricsTranslation;
-      },
-      set(value) {
-        this.$store.commit('updateSettings', {
-          key: 'showLyricsTranslation',
-          value,
-        });
-      },
-    },
-    lyricsBackground: {
-      get() {
-        return this.settings.lyricsBackground || false;
-      },
-      set(value) {
-        this.$store.commit('updateSettings', {
-          key: 'lyricsBackground',
-          value,
-        });
-      },
-    },
-    showLyricsTime: {
-      get() {
-        return this.settings.showLyricsTime;
-      },
-      set(value) {
-        this.$store.commit('updateSettings', {
-          key: 'showLyricsTime',
-          value,
-        });
-      },
-    },
-    enableOsdlyricsSupport: {
-      get() {
-        return this.settings.enableOsdlyricsSupport;
-      },
-      set(value) {
-        this.$store.commit('updateSettings', {
-          key: 'enableOsdlyricsSupport',
           value,
         });
       },
@@ -943,43 +637,6 @@ export default {
         });
       },
     },
-    enableDiscordRichPresence: {
-      get() {
-        return this.settings.enableDiscordRichPresence;
-      },
-      set(value) {
-        this.$store.commit('updateSettings', {
-          key: 'enableDiscordRichPresence',
-          value,
-        });
-      },
-    },
-    subTitleDefault: {
-      get() {
-        return this.settings.subTitleDefault;
-      },
-      set(value) {
-        this.$store.commit('updateSettings', {
-          key: 'subTitleDefault',
-          value,
-        });
-      },
-    },
-    enableReversedMode: {
-      get() {
-        if (this.settings.enableReversedMode === undefined) return false;
-        return this.settings.enableReversedMode;
-      },
-      set(value) {
-        this.$store.commit('updateSettings', {
-          key: 'enableReversedMode',
-          value,
-        });
-        if (value === false) {
-          this.$store.state.player.reversed = false;
-        }
-      },
-    },
     enableGlobalShortcut: {
       get() {
         return this.settings.enableGlobalShortcut;
@@ -991,171 +648,17 @@ export default {
         });
       },
     },
-    showLibraryDefault: {
+    // [启动页] 二选一(home/library)。用全新 key startupPage(缺省 home)，**不复用旧 showLibraryDefault**——
+    //   老 YesPlayMusic 用户那键多被持久化成 true(B-79 当年正因此强制首页)，复用会把他们误带进我的订阅。
+    //   新键缺省即 home、保持现状；main.js onReady 读 settings.startupPage 决定是否 replace 到 /library。
+    startupPageChoice: {
       get() {
-        return this.settings.showLibraryDefault || false;
+        return this.settings.startupPage === 'library' ? 'library' : 'home';
       },
       set(value) {
         this.$store.commit('updateSettings', {
-          key: 'showLibraryDefault',
-          value,
-        });
-      },
-    },
-    cacheLimit: {
-      get() {
-        return this.settings.cacheLimit || false;
-      },
-      set(value) {
-        this.$store.commit('updateSettings', {
-          key: 'cacheLimit',
-          value,
-        });
-      },
-    },
-    proxyProtocol: {
-      get() {
-        return this.settings.proxyConfig?.protocol || 'noProxy';
-      },
-      set(value) {
-        let config = this.settings.proxyConfig || {};
-        config.protocol = value;
-        if (value === 'noProxy') {
-          ipcRenderer.send('removeProxy');
-          this.showToast('已关闭代理');
-        }
-        this.$store.commit('updateSettings', {
-          key: 'proxyConfig',
-          value: config,
-        });
-      },
-    },
-    proxyServer: {
-      get() {
-        return this.settings.proxyConfig?.server || '';
-      },
-      set(value) {
-        let config = this.settings.proxyConfig || {};
-        config.server = value;
-        this.$store.commit('updateSettings', {
-          key: 'proxyConfig',
-          value: config,
-        });
-      },
-    },
-    enableRealIP: {
-      get() {
-        return this.settings.enableRealIP || false;
-      },
-      set(value) {
-        this.$store.commit('updateSettings', {
-          key: 'enableRealIP',
-          value: value,
-        });
-      },
-    },
-    realIP: {
-      get() {
-        return this.settings.realIP || '';
-      },
-      set(value) {
-        this.$store.commit('updateSettings', {
-          key: 'realIP',
-          value: value,
-        });
-      },
-    },
-    proxyPort: {
-      get() {
-        return this.settings.proxyConfig?.port || '';
-      },
-      set(value) {
-        let config = this.settings.proxyConfig || {};
-        config.port = value;
-        this.$store.commit('updateSettings', {
-          key: 'proxyConfig',
-          value: config,
-        });
-      },
-    },
-    unmSource: {
-      /**
-       * @returns {string}
-       */
-      get() {
-        return this.settings.unmSource || '';
-      },
-      /** @param {string?} value */
-      set(value) {
-        this.$store.commit('updateSettings', {
-          key: 'unmSource',
-          value: value.length && value,
-        });
-      },
-    },
-    unmSearchMode: {
-      get() {
-        return this.settings.unmSearchMode || 'fast-first';
-      },
-      set(value) {
-        this.$store.commit('updateSettings', {
-          key: 'unmSearchMode',
-          value: value,
-        });
-      },
-    },
-    unmEnableFlac: {
-      get() {
-        return this.settings.unmEnableFlac || false;
-      },
-      set(value) {
-        this.$store.commit('updateSettings', {
-          key: 'unmEnableFlac',
-          value: value || false,
-        });
-      },
-    },
-    unmProxyUri: {
-      get() {
-        return this.settings.unmProxyUri || '';
-      },
-      set(value) {
-        this.$store.commit('updateSettings', {
-          key: 'unmProxyUri',
-          value: value.length && value,
-        });
-      },
-    },
-    unmJooxCookie: {
-      get() {
-        return this.settings.unmJooxCookie || '';
-      },
-      set(value) {
-        this.$store.commit('updateSettings', {
-          key: 'unmJooxCookie',
-          value: value.length && value,
-        });
-      },
-    },
-    unmQQCookie: {
-      get() {
-        return this.settings.unmQQCookie || '';
-      },
-      set(value) {
-        this.$store.commit('updateSettings', {
-          key: 'unmQQCookie',
-          value: value.length && value,
-        });
-      },
-    },
-    unmYtDlExe: {
-      get() {
-        return this.settings.unmYtDlExe || '';
-      },
-      set(value) {
-        this.$store.commit('updateSettings', {
-          key: 'unmYtDlExe',
-          value: value.length && value,
+          key: 'startupPage',
+          value: value === 'library' ? 'library' : 'home',
         });
       },
     },
@@ -1170,12 +673,8 @@ export default {
         });
       },
     },
-    isLastfmConnected() {
-      return this.lastfm.key !== undefined;
-    },
   },
   created() {
-    this.countDBSize('tracks');
     if (process.env.IS_ELECTRON) {
       this.getAllOutputDevices();
       this.loadNas();
@@ -1183,7 +682,6 @@ export default {
     }
   },
   activated() {
-    this.countDBSize('tracks');
     if (process.env.IS_ELECTRON) {
       this.getAllOutputDevices();
       this.loadNas();
@@ -1360,51 +858,10 @@ export default {
       doLogout();
       this.$router.push({ name: 'home' });
     },
-    countDBSize() {
-      countDBSize().then(data => {
-        if (data === undefined) {
-          this.tracksCache = {
-            size: '0KB',
-            length: 0,
-          };
-          return;
-        }
-        this.tracksCache.size = bytesToSize(data.bytes);
-        this.tracksCache.length = data.length;
-      });
-    },
-    clearCache() {
-      clearDB().then(() => {
-        this.countDBSize();
-      });
-    },
-    lastfmConnect() {
-      lastfmAuth();
-      let lastfmChecker = setInterval(() => {
-        const session = localStorage.getItem('lastfm');
-        if (session) {
-          this.$store.commit('updateLastfm', JSON.parse(session));
-          clearInterval(lastfmChecker);
-        }
-      }, 1000);
-    },
-    lastfmDisconnect() {
-      localStorage.removeItem('lastfm');
-      this.$store.commit('updateLastfm', {});
-    },
-    sendProxyConfig() {
-      if (this.proxyProtocol === 'noProxy') return;
-      const config = this.settings.proxyConfig;
-      if (
-        config.server === '' ||
-        !config.port ||
-        config.protocol === 'noProxy'
-      ) {
-        ipcRenderer.send('removeProxy');
-      } else {
-        ipcRenderer.send('setProxy', config);
-      }
-      this.showToast('已更新代理设置');
+    // [快捷键] 显示名按 id 取自 shortcuts.js 默认(改默认即生效)，避开已持久化的旧名(settings.shortcuts)。
+    shortcutName(id) {
+      const d = defaultShortcuts.find(s => s.id === id);
+      return (d && d.name) || id;
     },
     clickOutside() {
       this.exitRecordShortcut();
@@ -1606,21 +1063,35 @@ h3 {
   }
 }
 
+// [设置控件统一] 选择框：固定宽度(不再随最长选项撑大成参差长度)，长名(如音频设备)单行省略号折叠、
+//   :title 悬停看全名、点开下拉看完整；去掉灰填充背景改干净细描边(用户：不要颜色背景)，聚焦/打开不再变蓝底。
 select {
-  min-width: 192px;
-  max-width: 600px;
+  width: 220px;
+  max-width: 220px;
   font-weight: 600;
-  border: none;
-  padding: 8px 12px 8px 12px;
-  border-radius: 8px;
+  border: 1px solid var(--color-secondary);
+  padding: 7px 12px;
+  border-radius: var(--radius-button);
   color: var(--color-text);
-  background: var(--color-secondary-bg);
+  background: transparent;
   appearance: none;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  cursor: pointer;
+  transition: border-color 0.15s;
+  &:hover {
+    border-color: var(--color-primary);
+  }
   &:focus {
     outline: none;
-    color: var(--color-primary);
-    background: var(--color-primary-bg);
+    border-color: var(--color-primary);
   }
+}
+// [二级菜单] 下拉选项用页面底色，去掉原继承的灰背景(用户：不要颜色背景)。
+option {
+  background: var(--color-body-bg);
+  color: var(--color-text);
 }
 
 button {
@@ -1628,7 +1099,7 @@ button {
   background: var(--color-secondary-bg);
   padding: 8px 12px 8px 12px;
   font-weight: 600;
-  border-radius: 8px;
+  border-radius: var(--radius-button);
   transition: 0.2s;
   &:hover {
     transform: scale(1.06);
@@ -1686,7 +1157,7 @@ input[type='number'] {
     font-weight: 500;
   }
   .col {
-    min-width: 192px;
+    min-width: 160px;
     padding: 8px;
     display: flex;
     align-items: center;
@@ -1699,9 +1170,9 @@ input[type='number'] {
   .keyboard-input {
     font-weight: 600;
     background-color: var(--color-secondary-bg);
-    padding: 8px 12px 8px 12px;
-    border-radius: 0.5rem;
-    min-width: 146px;
+    padding: 8px 12px;
+    border-radius: var(--radius-button);
+    min-width: 150px;
     min-height: 34px;
     box-sizing: border-box;
     &.active {
@@ -1776,6 +1247,7 @@ input[type='number'] {
   opacity: 0;
   position: absolute;
 }
+// [iOS化] track 44×26 整 pill、knob 22 圆形(原 52×32 圆角矩形+方钮，偏大偏方)。
 .toggle input + label {
   position: relative;
   display: inline-block;
@@ -1785,10 +1257,10 @@ input[type='number'] {
   user-select: none;
   -webkit-transition: 0.4s ease;
   transition: 0.4s ease;
-  height: 32px;
-  width: 52px;
+  height: 26px;
+  width: 44px;
   background: var(--color-secondary-bg);
-  border-radius: 8px;
+  border-radius: 999px;
 }
 .toggle input + label:before {
   content: '';
@@ -1796,11 +1268,11 @@ input[type='number'] {
   display: block;
   -webkit-transition: 0.2s cubic-bezier(0.24, 0, 0.5, 1);
   transition: 0.2s cubic-bezier(0.24, 0, 0.5, 1);
-  height: 32px;
-  width: 52px;
+  height: 26px;
+  width: 44px;
   top: 0;
   left: 0;
-  border-radius: 8px;
+  border-radius: 999px;
 }
 .toggle input + label:after {
   content: '';
@@ -1811,11 +1283,11 @@ input[type='number'] {
   -webkit-transition: 0.35s cubic-bezier(0.54, 1.6, 0.5, 1);
   transition: 0.35s cubic-bezier(0.54, 1.6, 0.5, 1);
   background: #fff;
-  height: 20px;
-  width: 20px;
-  top: 6px;
-  left: 6px;
-  border-radius: 6px;
+  height: 22px;
+  width: 22px;
+  top: 2px;
+  left: 2px;
+  border-radius: 50%;
 }
 .toggle input:checked + label:before {
   background: var(--color-primary);
@@ -1823,7 +1295,7 @@ input[type='number'] {
   transition: width 0.2s cubic-bezier(0, 0, 0, 0.1);
 }
 .toggle input:checked + label:after {
-  left: 26px;
+  left: 20px;
 }
 
 /* [NAS] 配置中心样式 */
@@ -1836,19 +1308,23 @@ input[type='number'] {
   vertical-align: middle;
 }
 .nas-cfg-dot.on {
-  background: #3fa06a;
-  animation: nas-cfg-breathe 2.4s ease-in-out infinite;
+  background: #1db954;
+  animation: nas-cfg-breathe 3.6s ease-in-out infinite;
 }
 .nas-cfg-dot.off {
   background: #c0392b;
 }
 @keyframes nas-cfg-breathe {
-  0%,
-  100% {
-    opacity: 1;
+  0% {
+    opacity: 0.5;
+    animation-timing-function: cubic-bezier(0.45, 0, 0.55, 1);
   }
-  50% {
-    opacity: 0.4;
+  40% {
+    opacity: 1;
+    animation-timing-function: cubic-bezier(0.45, 0, 0.55, 1);
+  }
+  100% {
+    opacity: 0.5;
   }
 }
 .nas-history-left {
@@ -1933,7 +1409,7 @@ input[type='number'] {
   }
   .nd-test {
     padding: 7px 14px;
-    border-radius: 8px;
+    border-radius: var(--radius-button);
     border: none;
     background: var(--color-secondary-bg);
     color: var(--color-text);
@@ -1955,7 +1431,7 @@ input[type='number'] {
     margin-top: 16px;
     button {
       padding: 8px 18px;
-      border-radius: 8px;
+      border-radius: var(--radius-button);
       border: none;
       cursor: pointer;
       background: var(--color-secondary-bg);

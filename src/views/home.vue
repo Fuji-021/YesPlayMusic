@@ -90,7 +90,11 @@
               @click="onSectionAction(sec)"
             >
               <span>{{ sec.actionText }}</span>
-              <svg-icon :icon-class="sec.actionIcon" />
+              <!-- [B67-BUG-6] bottle-cap(再来一瓶)彩色瓶盖信息密度高，单独放大；箭头/罗盘维持小尺寸 -->
+              <svg-icon
+                :icon-class="sec.actionIcon"
+                :class="{ 'is-bottlecap': sec.actionIcon === 'bottle-cap' }"
+              />
             </div>
           </div>
           <!-- [B-44] 固定两行 + 列数随窗口自适应（去掉横向滚轮）；切到 2*cols 项，多的进二级页 -->
@@ -544,6 +548,14 @@ footer {
     .svg-icon {
       width: 13px;
       height: 13px;
+    }
+    // [B67-BUG-6] 「再来一瓶」bottle-cap 彩色瓶盖。bottle-cap.svg 的 viewBox 是 640×480(4:3 非正方)：
+    //   ⚠️ 不能用 width:auto——svg-icon 外层 <svg> 自身无 viewBox(在 sprite 的 <symbol> 上)，无内在宽高比，
+    //   width:auto 会回退到替换元素默认 300px、把按钮撑爆、标题行错位。必须给**显式 4:3 宽高**(匹配
+    //   viewBox→不留白)。26×20 ≈ 4:3，瓶盖按 ~20px 高完整渲染、比 13px 文字稍大。箭头/罗盘仍 13px。
+    .svg-icon.is-bottlecap {
+      width: 26px;
+      height: 20px;
     }
     &:hover {
       opacity: 1;

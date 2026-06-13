@@ -76,7 +76,7 @@ export default {
   .cover {
     width: 48px;
     height: 48px;
-    border-radius: 8px;
+    border-radius: var(--radius-cover-sm);
     object-fit: cover;
     background: var(--color-secondary-bg);
     flex-shrink: 0;

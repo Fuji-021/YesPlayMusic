@@ -104,6 +104,7 @@
             }}<span
               v-if="nasEpOn(ep)"
               class="nas-dot"
+              :style="nasGlow(ep.guid)"
               title="NAS 上有此单集（音源就近）"
               ><svg-icon icon-class="wifi"
             /></span>
@@ -380,9 +381,18 @@ export default {
     //   为何这样：B-73.2 靠滚动触发 + B-74 底部占位(spacer)，会让自绘滚动条拖到一片"未渲染的
     //   空白占位"里、且托条按变化的 scrollHeight 算位移而跳动/脱手(用户反馈"还不如上一版")。
     //   改后台水合后：列表很快是**完整真实高度** → 滚动条/拖动稳、永不留空白；首屏仍是即时 50 条。
-    //   每帧 +120，1000 集约 8 帧(~130ms)内填满；组件销毁/换节目即取消。
+    // [机核封面 hover 慢半拍根治 2026-06-14 · 对抗式评审收敛]
+    //   原 +120/帧：机核(1000+集)每帧 patch 120 行子树(每行约 10 个模板方法) → 单帧远超 16ms，
+    //   rAF 连帧背靠背把主线程钉死约 1~2s；这期间头部封面 :hover 的 pointer 事件被排在渲染之后
+    //   → 反馈慢半拍(水合完就好、退出再进又复现)。注：单集行不含 PodImage 封面，慢源在「行数×方法」
+    //   的 patch 量，非图片。上轮改辉光动画治错了层(饿死的是「输入派发」，改 hover 动什么都没用)。
+    //   根治=每帧块 120 → **24**：单帧 patch(~24 行)稳稳 <8ms，留足时间派发输入 + 提交封面合成
+    //   → hover 不再排队；1000+ 集约 42 帧(~0.7~1s)填满，仍快到滚动条很快达完整真实高度(B-75)、
+    //   且更小步增长更稳。残留可降到 16，过慢可升到 ≤36(勿超 48)。requestIdleCallback+监听器方案
+    //   在持续输入下不可靠且反增主线程负担(已否决)；虚拟列表会重新引入 B-74 占位/硬编码行高(已否决)。
     _startHydration() {
       this._stopHydration();
+      const CHUNK = 24; // 原 120；小块 = 单帧渲染 <8ms、不饿死输入(封面 hover 即时)
       const step = () => {
         if (this._isDestroyed) return;
         if (this.epDisplayLimit >= this.episodes.length) {
@@ -391,7 +401,7 @@ export default {
         }
         this.epDisplayLimit = Math.min(
           this.episodes.length,
-          this.epDisplayLimit + 120
+          this.epDisplayLimit + CHUNK
         );
         this._hydrateRaf = requestAnimationFrame(step);
       };
@@ -620,6 +630,19 @@ export default {
     // [NAS] 该单集在 NAS 上是否已归档(决定是否显示 wifi 标识)。
     nasEpOn(ep) {
       return !!(ep && ep.guid && this.nasEpGuids.has(ep.guid));
+    },
+    // [呼吸灯 v2.0] 由稳定 id 派生「周期 + 负相位」→ 同点恒定、彼此不同，萤火虫式错落呼吸(不齐步)。
+    //   必须 id 派生(非 Math.random)：单集列表重渲(分页/水合)不摇号、不闪。
+    nasGlow(id) {
+      let h = 0;
+      const s = String(id || '');
+      for (let i = 0; i < s.length; i++) h = (h * 31 + s.charCodeAt(i)) >>> 0;
+      const dur = [3.2, 3.8, 4.4, 5.0][h % 4]; // 4 档非谐波周期，缓慢飘移、几乎不全体重合
+      const delay = -(((h >> 3) % Math.round(dur * 100)) / 100); // 负相位铺满各自周期
+      return {
+        animationDuration: dur + 's',
+        animationDelay: delay.toFixed(2) + 's',
+      };
     },
     downloadPercent(ep) {
       if (!ep) return -1;
@@ -872,7 +895,9 @@ export default {
       transform: translateY(-3px) scale(1.02);
     }
     &:hover .cover-shadow {
-      filter: blur(26px) opacity(0.6);
+      // 辉光增强只动 opacity/transform（合成器属性），不动 filter → 不被主线程渲染阻塞、不再慢半拍
+      opacity: 0.62;
+      transform: scale(0.98);
     }
   }
   .cover-shadow {
@@ -884,10 +909,14 @@ export default {
     border-radius: 16px;
     background-size: cover;
     background-position: center;
-    filter: blur(18px) opacity(0.4);
+    // [perf] blur 固定不动画（filter 动画走主线程 paint，机核进详情时被千集渲染占用 → 辉光滞后于 scale）；
+    //   强弱/扩散改用 opacity + transform scale，纯合成器、与主线程负载解耦。
+    filter: blur(20px);
+    opacity: 0.4;
     transform: scale(0.92);
     z-index: 0;
-    transition: filter 0.25s;
+    transition: opacity 0.25s ease-out, transform 0.25s ease-out;
+    will-change: opacity, transform;
     pointer-events: none;
   }
   .cover-wrap {
@@ -895,13 +924,13 @@ export default {
     z-index: 1;
     width: 100%;
     height: 100%;
-    border-radius: 16px;
+    border-radius: var(--radius-cover);
     overflow: hidden;
   }
   .cover-lg {
     width: 100%;
     height: 100%;
-    border-radius: 16px;
+    // 圆角交给 .cover-wrap 的 overflow:hidden 裁；内层不再重复 radius（消双重圆角发丝缝裁切）
     object-fit: cover;
     background: var(--color-secondary-bg);
     display: block;
@@ -947,7 +976,9 @@ export default {
   }
   .meta {
     flex: 1;
-    overflow: hidden;
+    // [裁切修] 原 overflow:hidden 会裁掉 .sub-this-btn 的 :hover scale 反馈(按钮左缘贴 .meta 边)；
+    //   改 min-width:0：同样防 flex 被长标题撑破，但不裁切放大动画。
+    min-width: 0;
     .t {
       font-size: 28px;
       font-weight: 700;
@@ -963,17 +994,17 @@ export default {
       align-items: center;
       gap: 6px;
       margin-bottom: 12px;
-      padding: 8px 18px;
-      border-radius: 8px;
+      padding: 8px 16px;
+      border-radius: var(--radius-button);
       background: var(--color-primary);
       color: var(--color-primary-bg);
       font-weight: 600;
-      font-size: 14px;
+      font-size: 13px;
       cursor: pointer;
       transition: 0.15s;
       .svg-icon {
-        width: 15px;
-        height: 15px;
+        width: 14px;
+        height: 14px;
       }
       &:hover {
         transform: scale(1.04);
@@ -1015,7 +1046,7 @@ export default {
   background: transparent;
   color: var(--color-text);
   opacity: 0.55;
-  border-radius: 8px;
+  border-radius: var(--radius-button);
   padding: 6px 10px;
   display: inline-flex;
   align-items: center;
@@ -1060,7 +1091,7 @@ export default {
     margin-top: 14px;
     padding: 7px 18px;
     border: none;
-    border-radius: 8px;
+    border-radius: var(--radius-button);
     background: var(--color-secondary-bg);
     color: var(--color-text);
     font-size: 13px;
@@ -1223,28 +1254,34 @@ export default {
     font-weight: 600;
     font-size: 15px;
     margin-bottom: 4px;
-    // [NAS] "NAS 上有此单集"标识：小 wifi 图标接名字后，略低饱和绿 + 呼吸(与 navbar 同步)
+    // [NAS] "NAS 上有此单集"标识：小 wifi 图标接名字后，绿(饱和与 navbar 同步) + 萤火虫式呼吸(nasGlow 按集错相位/微变周期)
     .nas-dot {
       display: inline-flex;
       align-items: center;
       margin-left: 5px;
       vertical-align: middle;
-      color: #3fa06a;
-      animation: nas-breathe 2.6s ease-in-out infinite;
+      color: #1db954;
+      // 基础周期 3.6s 为兜底；nasGlow 的 inline animation-duration/delay 会按集覆盖
+      animation: nas-breathe 3.6s ease-in-out infinite;
       .svg-icon {
         width: 13px;
         height: 13px;
       }
     }
   }
-  // [NAS] 呼吸灯（与 navbar 状态图标 / 订阅页标识同节奏）
+  // [NAS][呼吸灯 v2.0] 柔和不对称曲线：谷 .5 缓升 → 40% 达峰 → 缓降(仿苹果睡眠灯)；不用 linear()(Chromium91)。
+  //   周期由各集 nasGlow 的 inline 值驱动(错相位+微变)。
   @keyframes nas-breathe {
-    0%,
-    100% {
-      opacity: 1;
+    0% {
+      opacity: 0.5;
+      animation-timing-function: cubic-bezier(0.45, 0, 0.55, 1);
     }
-    50% {
-      opacity: 0.45;
+    40% {
+      opacity: 1;
+      animation-timing-function: cubic-bezier(0.45, 0, 0.55, 1);
+    }
+    100% {
+      opacity: 0.5;
     }
   }
   .ep-sub {
@@ -1331,7 +1368,7 @@ export default {
   background: var(--color-secondary-bg);
   color: var(--color-text);
   padding: 8px 16px;
-  border-radius: 8px;
+  border-radius: var(--radius-button);
   font-weight: 600;
   font-size: 14px;
   cursor: pointer;
@@ -1383,7 +1420,7 @@ export default {
   background: #e74c3c;
   color: #fff;
   padding: 8px 16px;
-  border-radius: 8px;
+  border-radius: var(--radius-button);
   font-weight: 600;
   font-size: 14px;
   cursor: pointer;
@@ -1424,7 +1461,7 @@ export default {
     font-weight: 600;
     cursor: pointer;
     padding: 6px 10px;
-    border-radius: 8px;
+    border-radius: var(--radius-button);
     &:hover {
       opacity: 1;
       background: var(--color-secondary-bg-for-transparent);
@@ -1437,7 +1474,7 @@ export default {
     font-weight: 700;
     cursor: pointer;
     padding: 8px 18px;
-    border-radius: 10px;
+    border-radius: var(--radius-button);
     display: inline-flex;
     align-items: center;
     gap: 6px;

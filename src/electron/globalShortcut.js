@@ -52,7 +52,14 @@ export function registerGlobalShortcut(win, store) {
   globalShortcut.register(
     shortcuts.find(s => s.id === 'minimize').globalShortcut,
     () => {
-      win.isVisible() ? win.hide() : win.show();
+      // [修] 原 win.show() 不还原/不聚焦 → 隐藏后再按"显示没效果"。补 restore + focus 置前。
+      if (win.isVisible()) {
+        win.hide();
+      } else {
+        win.show();
+        if (win.isMinimized()) win.restore();
+        win.focus();
+      }
     }
   );
 }

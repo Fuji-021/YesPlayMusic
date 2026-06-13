@@ -1415,7 +1415,7 @@ export default {
     height: 46px;
     width: 46px;
     object-fit: cover;
-    border-radius: 5px;
+    border-radius: var(--radius-cover-mini);
     box-shadow: 0 6px 8px -2px rgba(0, 0, 0, 0.16);
     cursor: pointer;
     user-select: none;
@@ -1748,7 +1748,7 @@ export default {
     .qp-cover {
       width: 38px;
       height: 38px;
-      border-radius: 6px;
+      border-radius: var(--radius-cover-mini);
       object-fit: cover;
       flex-shrink: 0;
     }

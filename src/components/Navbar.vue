@@ -29,16 +29,20 @@
           :class="{ active: navSection === 'library' }"
           >{{ $t('nav.library') }}</router-link
         >
-        <!-- [NAS] 连接状态图标：放「我的订阅」旁，绿(在线·呼吸)/红(断联·静止)；未启用不显示。点击重连。 -->
-        <div
-          v-if="nasState.enabled"
-          class="nas-status"
-          :class="nasStateClass"
-          :title="nasTitle"
-          @click="onNasClick"
-        >
-          <svg-icon icon-class="router-wifi-alt" />
-        </div>
+        <!-- [NAS] 连接状态图标：放「我的订阅」旁，绿(在线·呼吸)/红(断联·静止)；未启用不显示。点击重连。
+             外包 transition：启停时图标平滑收起/展开（max-width+opacity 渐变），
+             使「我的订阅」跟着缓缓归位，而非生切补位。 -->
+        <transition name="nas-collapse">
+          <div
+            v-if="nasState.enabled"
+            class="nas-status"
+            :class="nasStateClass"
+            :title="nasTitle"
+            @click="onNasClick"
+          >
+            <svg-icon icon-class="router-wifi-alt" />
+          </div>
+        </transition>
       </div>
       <div class="right-part">
         <!-- [B-52] 播客搜索框：本地(我的订阅/单集) + 在线(iTunes)，回车跳搜索页 -->
@@ -159,7 +163,12 @@ import ContextMenu from '@/components/ContextMenu.vue';
 import ButtonIcon from '@/components/ButtonIcon.vue';
 import AvatarCropper from '@/components/AvatarCropper.vue';
 // [NAS] 连接状态（熔断器）：导航栏状态图标读它。未启用则图标不显示。
-import { nasStatus, testNasConnection } from '@/utils/podcast/nasSource';
+//   nasActiveName：当前激活档名（toast「托尼的 NAS 已连接」用，随用户改名实时变）。
+import {
+  nasStatus,
+  testNasConnection,
+  nasActiveName,
+} from '@/utils/podcast/nasSource';
 
 export default {
   name: 'Navbar',
@@ -308,14 +317,17 @@ export default {
       this.$refs.userProfileMenu.openMenu(e);
     },
     // [NAS] 点状态图标 → 立即重新探测连接（手动重连）；结果反映到图标 + toast。
+    //   文案带当前档名（随用户改名变）：「托尼的 NAS 已连接」/「…连不上，已用在线音源」。
     async onNasClick() {
       const r = await testNasConnection();
       const ok = !!(r && r.ok);
       const s = nasStatus();
       this.nasState = { enabled: s.enabled, alive: s.alive };
+      const nm = nasActiveName();
+      const label = nm ? nm + '的 NAS' : 'NAS';
       this.$store.dispatch(
         'showToast',
-        ok ? 'NAS 已连接' : 'NAS 暂时连不上，已使用在线音源'
+        ok ? label + ' 已连接' : label + ' 暂时连不上，已用在线音源'
       );
     },
     logout() {
@@ -496,7 +508,7 @@ nav.has-custom-titlebar {
     align-items: center;
     height: 32px;
     background: var(--color-secondary-bg-for-transparent);
-    border-radius: 8px;
+    border-radius: var(--radius-button);
     // 宽度仅够「🔍 搜索播客」+ 清除×，不再占大块
     width: 168px;
     // [B-52] 轻反馈 + 聚焦缩放动画
@@ -590,14 +602,19 @@ nav.has-custom-titlebar {
   }
 }
 
-// [NAS] 状态图标呼吸灯（在线绿态缓慢呼吸；离线红态静止不加此动画）
+// [NAS][呼吸灯 v2.0] 状态图标呼吸灯（在线绿态缓慢呼吸；离线红态静止不加此动画）。
+//   单点不加错相位(无从比对)，但同步调慢 3.6s + 柔和不对称曲线，与节目/单集点同一呼吸气质。
 @keyframes nas-breathe {
-  0%,
-  100% {
-    opacity: 1;
+  0% {
+    opacity: 0.5;
+    animation-timing-function: cubic-bezier(0.45, 0, 0.55, 1);
   }
-  50% {
-    opacity: 0.35;
+  40% {
+    opacity: 1;
+    animation-timing-function: cubic-bezier(0.45, 0, 0.55, 1);
+  }
+  100% {
+    opacity: 0.5;
   }
 }
 // [NAS] 连接状态图标：放「我的订阅」旁(navigation-links 内)，绿(在线·呼吸)/红(断联·静止)
@@ -614,7 +631,7 @@ nav.has-custom-titlebar {
   }
   &.online {
     color: #1db954;
-    animation: nas-breathe 2.4s ease-in-out infinite;
+    animation: nas-breathe 3.6s ease-in-out infinite;
   }
   &.offline {
     color: #e74c3c;
@@ -622,6 +639,27 @@ nav.has-custom-titlebar {
   &:hover {
     filter: brightness(1.15);
   }
+}
+// [NAS] 启停过渡：图标宽度/外边距/透明度一起渐变 → 绝对居中的 nav-links 跟着缓缓归位，
+//   消除「关闭 NAS 后『我的订阅』瞬间补位」的生切。收起期间停掉呼吸动画，免与 opacity 打架。
+.nas-collapse-enter-active,
+.nas-collapse-leave-active {
+  // all：一次过渡 max-width/margin-left/opacity/transform，单行免触发 prettier 换行规则
+  transition: all 0.35s ease;
+  overflow: hidden;
+  animation: none !important;
+}
+.nas-collapse-enter,
+.nas-collapse-leave-to {
+  opacity: 0;
+  max-width: 0;
+  margin-left: 0;
+  transform: scale(0.4);
+}
+.nas-collapse-enter-to,
+.nas-collapse-leave {
+  opacity: 1;
+  max-width: 28px; // 图标 18 + margin-left 10
 }
 .right-part {
   flex: 1;

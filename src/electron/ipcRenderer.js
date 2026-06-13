@@ -35,16 +35,17 @@ export function ipcRenderer(vueInstance) {
     player.playOrPause();
   });
 
+  // [播客快捷键] 下一首/上一首对播客无意义(队列导航空操作)→ 改为快进 30 秒 / 快退 15 秒，
+  //   与底栏 ±15/30 按钮一致(Player.vue seekForward30 / seekBackward15)。
   ipcRenderer.on('next', () => {
-    if (player.isPersonalFM) {
-      player.playNextFMTrack();
-    } else {
-      player.playNextTrack();
-    }
+    const cur = player.seek();
+    const dur = player.currentTrackDuration || 0;
+    player.seek(Math.min(Math.max(0, dur - 1), (cur || 0) + 30));
   });
 
   ipcRenderer.on('previous', () => {
-    player.playPrevTrack();
+    const cur = player.seek();
+    player.seek(Math.max(0, (cur || 0) - 15));
   });
 
   ipcRenderer.on('increaseVolume', () => {
@@ -61,8 +62,15 @@ export function ipcRenderer(vueInstance) {
     player.volume -= 0.1;
   });
 
+  // [播客快捷键] 收藏：播客单集 → 本地收藏切换；网易云曲 → 原 likeATrack(同 Player.vue toggleFavorite)。
   ipcRenderer.on('like', () => {
-    store.dispatch('likeATrack', player.currentTrack.id);
+    const t = player.currentTrack;
+    if (!t) return;
+    if (t.podcastEpisodeId) {
+      store.dispatch('togglePodcastFavorite', t);
+    } else if (t.id) {
+      store.dispatch('likeATrack', t.id);
+    }
   });
 
   ipcRenderer.on('repeat', () => {

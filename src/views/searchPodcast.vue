@@ -395,7 +395,7 @@ export default {
     position: relative;
     width: 100%;
     height: 100%;
-    border-radius: 12px;
+    border-radius: var(--radius-cover);
     object-fit: cover;
     background: var(--color-secondary-bg);
     z-index: 1;

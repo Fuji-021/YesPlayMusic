@@ -30,10 +30,14 @@
           >
         </div>
         <div class="actions">
-          <!-- [S-3] 主播放 button：play-circle 大按钮 -->
-          <button class="play-btn" @click="play">
-            <svg-icon icon-class="play-circle" />
-            <span>{{ resumeAvailable ? '继续播放' : '立即播放' }}</span>
+          <!-- [S-3] 主播放 button：状态机 正在播放(暂停图标)/继续播放/点击播放 -->
+          <button
+            class="play-btn"
+            :class="{ 'is-playing': isThisPlaying }"
+            @click="play"
+          >
+            <svg-icon :icon-class="isThisPlaying ? 'pause' : 'play-circle'" />
+            <span>{{ playBtnLabel }}</span>
           </button>
           <!-- [S-3] 三个小入口：收藏 / 下载 / 加入播放列表 -->
           <button class="mini-btn" :class="{ favorited: isFav }" @click="onFav">
@@ -188,12 +192,37 @@ export default {
       if (listenedPercentStepped(this.listenStats) >= 5) return 'partial';
       return '';
     },
-    resumeAvailable() {
-      return (
-        this.progressSec > 30 &&
-        this.episode &&
-        this.progressSec < (this.episode.duration || Infinity) - 30
-      );
+    // [UI状态机] 播放器当前加载的是不是本集
+    isCurrentEpisode() {
+      const ct = this.$store.state.player.currentTrack;
+      return !!(this.episode && ct && ct.podcastEpisodeId === this.episode.id);
+    },
+    // 播放器是否正在播放（响应式：依赖 player._playing）
+    playerPlaying() {
+      return !!this.$store.state.player.playing;
+    },
+    // 本集是否正在播放中（= 当前曲 + 正在播放）
+    isThisPlaying() {
+      return this.isCurrentEpisode && this.playerPlaying;
+    },
+    // [UI状态机] ③ 续播判定：有断点(>30s) + 没听完(completed=false) + 离结尾还有 >30s。
+    //   完整听过一遍的(已听完)不算续播 → 走「点击播放」从头。
+    canResume() {
+      if (this.listenStats && this.listenStats.completed) return false;
+      const dur = (this.episode && this.episode.duration) || 0;
+      return this.progressSec > 30 && (dur <= 0 || this.progressSec < dur - 30);
+    },
+    // [UI状态机] 主按钮文案：
+    //   ① 本集正在播放 → 正在播放（点击暂停）
+    //   ② 本集已加载但暂停 → 继续播放（点击续播）
+    //   ③ 非本集但听过没听完 → 继续播放（从断点续播）
+    //   ④ 其余(没听过 / 已听完) → 点击播放（从头）
+    playBtnLabel() {
+      if (this.isCurrentEpisode) {
+        return this.playerPlaying ? '正在播放' : '继续播放';
+      }
+      if (this.canResume) return '继续播放';
+      return '点击播放';
     },
     // [B-31] 下载状态
     isDownloaded() {
@@ -301,8 +330,16 @@ export default {
       }
     },
     play() {
+      const player = this.$store.state.player;
+      if (!player || !this.episode) return;
+      // 本集已是当前曲：点击 = 暂停/继续（playOrPause 切换；不重建、保留进度）。
+      if (this.isCurrentEpisode) {
+        if (typeof player.playOrPause === 'function') player.playOrPause();
+        return;
+      }
+      // 非本集：起播。playPodcastEpisode 内部按保存进度续播/从头(已听完会自动归零从头)。
       const title = (this.podcast && this.podcast.title) || '';
-      this.$store.state.player.playPodcastEpisode(this.episode, title);
+      player.playPodcastEpisode(this.episode, title);
     },
     // [B-74] show notes 里把纯文本时间戳包成可点链接（只遍历文本节点，不碰标签/属性）。
     linkifyTimestamps(root) {
@@ -523,7 +560,9 @@ export default {
       transform: translateY(-3px) scale(1.02);
     }
     &:hover .cover-shadow {
-      filter: blur(24px) opacity(0.6);
+      // 辉光增强只动 opacity/transform（合成器属性），不动 filter → 不被主线程渲染阻塞、不再慢半拍
+      opacity: 0.6;
+      transform: scale(0.98);
     }
   }
   .cover-shadow {
@@ -535,10 +574,14 @@ export default {
     border-radius: 14px;
     background-size: cover;
     background-position: center;
-    filter: blur(16px) opacity(0.4);
+    // [perf] blur 固定不动画（filter 动画走主线程 paint，会被大档单集渲染占用 → 辉光滞后于 scale）；
+    //   强弱/扩散改用 opacity + transform scale，纯合成器、与主线程负载解耦。
+    filter: blur(18px);
+    opacity: 0.4;
     transform: scale(0.92);
     z-index: 0;
-    transition: filter 0.25s;
+    transition: opacity 0.25s ease-out, transform 0.25s ease-out;
+    will-change: opacity, transform;
     pointer-events: none;
   }
   .cover-wrap {
@@ -546,20 +589,22 @@ export default {
     z-index: 1;
     width: 100%;
     height: 100%;
-    border-radius: 14px;
+    border-radius: var(--radius-cover);
     overflow: hidden;
   }
   .cover {
     width: 100%;
     height: 100%;
-    border-radius: 14px;
+    // 圆角交给 .cover-wrap 的 overflow:hidden 裁；内层不再重复 radius（消双重圆角发丝缝裁切）
     object-fit: cover;
     background: var(--color-secondary-bg);
     display: block;
   }
   .meta {
     flex: 1;
-    overflow: hidden;
+    // [裁切修] 原 overflow:hidden 会裁掉 .play-btn 等子按钮的 :hover scale 反馈(按钮贴 .meta 边)；
+    //   改 min-width:0：同样防 flex 被长标题撑破，但不裁切放大动画。
+    min-width: 0;
     .podcast-name {
       font-size: 13px;
       opacity: 0.65;
@@ -605,14 +650,14 @@ export default {
 .play-btn {
   background: var(--color-primary);
   color: var(--color-primary-bg);
-  padding: 9px 18px;
-  border-radius: 10px;
+  padding: 8px 16px;
+  border-radius: var(--radius-button);
   font-weight: 700;
-  font-size: 14px;
+  font-size: 13px;
   cursor: pointer;
   display: inline-flex;
   align-items: center;
-  gap: 8px;
+  gap: 6px;
   transition: 0.15s;
   .svg-icon {
     width: 14px;
@@ -724,7 +769,7 @@ export default {
   background: var(--color-secondary-bg);
   color: var(--color-text);
   padding: 8px 16px;
-  border-radius: 8px;
+  border-radius: var(--radius-button);
   font-weight: 600;
   font-size: 14px;
   cursor: pointer;
@@ -737,7 +782,7 @@ export default {
   background: #e74c3c;
   color: #fff;
   padding: 8px 16px;
-  border-radius: 8px;
+  border-radius: var(--radius-button);
   font-weight: 600;
   font-size: 14px;
   cursor: pointer;

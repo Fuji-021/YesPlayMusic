@@ -10,13 +10,13 @@ export default [
   },
   {
     id: 'next',
-    name: '下一首',
+    name: '快进 30 秒',
     shortcut: 'CommandOrControl+Right',
     globalShortcut: 'Alt+CommandOrControl+Right',
   },
   {
     id: 'previous',
-    name: '上一首',
+    name: '快退 15 秒',
     shortcut: 'CommandOrControl+Left',
     globalShortcut: 'Alt+CommandOrControl+Left',
   },
@@ -34,7 +34,7 @@ export default [
   },
   {
     id: 'like',
-    name: '喜欢歌曲',
+    name: '收藏单集',
     shortcut: 'CommandOrControl+L',
     globalShortcut: 'Alt+CommandOrControl+L',
   },

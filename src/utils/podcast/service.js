@@ -173,17 +173,21 @@ export async function refreshAllSubscriptions(onProgress) {
     let error = null;
     try {
       const xml = await ipcFetch('podcast:fetchRss', p.id);
-      const { episodes } = parseRss(xml, p.id);
+      const { podcast: meta, episodes } = parseRss(xml, p.id);
       const existing = await getEpisodesByPodcast(p.id);
       const existingIds = new Set(existing.map(e => e.id));
       const fresh = episodes.filter(e => !existingIds.has(e.id));
       newCount = fresh.length;
       if (episodes.length) await upsertEpisodes(episodes);
-      if (newCount > 0) {
-        await updatePodcast(p.id, {
-          newCount: (p.newCount || 0) + newCount,
-        });
+      // [封面同步] 节目可能换了封面——原来刷新只更新单集，coverUrl 永远停在订阅时的旧值，
+      //   导致首页/我的订阅显示旧封面、详情页显示新封面对不上。这里把 newCount 与 coverUrl 合并写回，
+      //   只在确有变化时写；标题/作者不动（它们是按名关联订阅/推荐的 key，贸然改会断匹配）。
+      const patch = {};
+      if (newCount > 0) patch.newCount = (p.newCount || 0) + newCount;
+      if (meta && meta.coverUrl && meta.coverUrl !== p.coverUrl) {
+        patch.coverUrl = meta.coverUrl;
       }
+      if (Object.keys(patch).length) await updatePodcast(p.id, patch);
     } catch (e) {
       error = String((e && e.message) || e);
     }

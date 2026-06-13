@@ -46,6 +46,14 @@
   --color-primary-bg-for-transparent: rgba(189, 207, 255, 0.28);
   --color-secondary-bg-for-transparent: rgba(209, 209, 214, 0.28);
   --html-overflow-y: overlay;
+  // [UI 统一] 中型动作按钮/搜索框/弹窗按钮的圆角：iOS 风的适度曲率（非全胶囊，不过弯）。
+  //   全站这类按钮统一引用此变量，改一处即可整体微调。极小按钮(<24px 高)不用它，免显成伪胶囊。
+  --radius-button: 12px;
+  // [UI 统一] 封面圆角，按尺寸分档（曲率比例≈一致 → 苹果观感）。卡片与其详情页同档，跳转不变形。
+  //   裁切由 .cover-wrap 的 overflow:hidden 负责，内层 <img> 不再重复设 radius（免双重圆角发丝缝）。
+  --radius-cover: 16px; // 大方形封面：详情页 + 网格卡片(≈150~180px)
+  --radius-cover-sm: 8px; // 列表行缩略(≈48~56px)
+  --radius-cover-mini: 6px; // 迷你封面：播放bar / 队列(≈38~46px)
 }
 
 [data-theme='dark'] {
