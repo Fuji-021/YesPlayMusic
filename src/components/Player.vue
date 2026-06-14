@@ -490,7 +490,7 @@
                 :interval="1"
                 :drag-on-click="true"
                 :duration="0"
-                :dot-size="14"
+                :dot-size="10"
                 :height="4"
                 tooltip="none"
                 :lazy="true"
@@ -718,9 +718,18 @@
                     ></svg-icon>
                   </button-icon>
                 </div>
-                <!-- 音量：单图标，点=静音、滚轮=调节(同 bar 音量键)，不常驻进度条 -->
-                <div class="imm-vol" @wheel.prevent="onVolumeWheel">
-                  <button-icon :title="$t('player.mute')" @click.native="mute">
+                <!-- 音量：点击弹出滑条弹窗(形状同睡眠)，可拖可滚轮；取消一键静音(拖到底=静音)。
+                     不同于 bar 的常驻滑条——沉浸页用弹窗，干净。 -->
+                <div
+                  ref="volControlImm"
+                  class="vol-control imm-vol"
+                  @click.stop
+                >
+                  <button-icon
+                    :class="{ active: volMenuOpen }"
+                    title="音量"
+                    @click.native="toggleVolMenu"
+                  >
                     <svg-icon v-show="volume > 0.5" icon-class="volume" />
                     <svg-icon v-show="volume === 0" icon-class="volume-mute" />
                     <svg-icon
@@ -728,6 +737,31 @@
                       icon-class="volume-half"
                     />
                   </button-icon>
+                  <transition name="fade">
+                    <div
+                      v-if="volMenuOpen"
+                      class="vol-menu"
+                      @click.stop
+                      @wheel.prevent="onVolumeWheel"
+                    >
+                      <div class="vol-slider">
+                        <span class="v-label">音量 {{ volPercent }}%</span>
+                        <div class="vol-track">
+                          <vue-slider
+                            v-model="volume"
+                            :min="0"
+                            :max="1"
+                            :interval="0.01"
+                            :height="4"
+                            :drag-on-click="true"
+                            :duration="0"
+                            tooltip="none"
+                            :dot-size="12"
+                          ></vue-slider>
+                        </div>
+                      </div>
+                    </div>
+                  </transition>
                 </div>
               </div>
             </div>
@@ -804,6 +838,9 @@ export default {
       // [沉浸式播放页 P0] 全屏沉浸 overlay 开关 + 封面 3 色调色板(切歌取一次、缓存)
       immersiveOpen: false,
       immPalette: null,
+      // [沉浸式播放页] 音量弹窗(沉浸页专用：点击弹滑条，区别于 bar 的常驻滑条)
+      volMenuOpen: false,
+      volOutsideListener: null,
     };
   },
   computed: {
@@ -927,6 +964,10 @@ export default {
       if (!ar || !ar.length) return '';
       return ar.map(a => a.name).join(', ');
     },
+    // [沉浸式播放页] 音量百分比(弹窗 label 用)
+    volPercent() {
+      return Math.round((this.volume || 0) * 100);
+    },
     // [沉浸式播放页 P0] 中层三色柔和径向渐变(忠实封面冷暖分布、已降饱和)；
     //   取色未就绪/失败 → 中性深色兜底，保证不空。
     immBg() {
@@ -1000,8 +1041,9 @@ export default {
     // [B-75] 清理标记长按/pulse 计时器
     clearTimeout(this._markTimer);
     clearTimeout(this._markPulseTimer);
-    // [沉浸式播放页 P0] 卸载时若沉浸页还开着，恢复全局滚动 + 关队列面板监听(防泄漏)
+    // [沉浸式播放页 P0] 卸载时若沉浸页还开着，恢复全局滚动 + 关队列/音量面板监听(防泄漏)
     this.closeQueuePanel();
+    this.closeVolMenu();
     if (this.immersiveOpen) this.$store.commit('enableScrolling', true);
   },
   methods: {
@@ -1607,6 +1649,29 @@ export default {
       this.closeRateMenu();
       this.closeSleepMenu();
       this.closeQueuePanel();
+      this.closeVolMenu();
+    },
+    // [沉浸式播放页] 音量弹窗：点击切换、点外部关闭(同倍速/睡眠模式)。取消一键静音——
+    //   要静音把滑条拖到底即可。滚轮在弹窗内调节(onVolumeWheel 复用 bar 逻辑)。
+    toggleVolMenu() {
+      this.volMenuOpen ? this.closeVolMenu() : this.openVolMenu();
+    },
+    openVolMenu() {
+      this.volMenuOpen = true;
+      this.$nextTick(() => {
+        this.volOutsideListener = ev => {
+          if (!this._insideAnyRef(['volControlImm'], ev.target))
+            this.closeVolMenu();
+        };
+        document.addEventListener('mousedown', this.volOutsideListener);
+      });
+    },
+    closeVolMenu() {
+      this.volMenuOpen = false;
+      if (this.volOutsideListener) {
+        document.removeEventListener('mousedown', this.volOutsideListener);
+        this.volOutsideListener = null;
+      }
     },
     // 取封面 3 色(切歌一次、缓存)；竞态保护：仅当仍是同一 src 才落定
     refreshImmPalette(src) {
@@ -2568,7 +2633,8 @@ export default {
 
 // 节目名/单集名(整行可点击)；收藏已移到下方控制行
 .imm-meta {
-  margin-bottom: clamp(12px, 2vh, 22px);
+  // [批注] 再加大「节目名↔进度条」间距 → 进度条+控制整块再下移；hover 时间提示也不会撞到节目名
+  margin-bottom: clamp(20px, 3.4vh, 40px);
   .imm-text {
     min-width: 0;
   }
@@ -2623,11 +2689,15 @@ export default {
   ::v-deep .vue-slider:active .vue-slider-dot-handle {
     visibility: visible;
   }
+  // [批注] 去掉黑底小弹窗(太丑/显示突兀)：纯白字 + 文字阴影，亮背景上也看得清，无方框
   .progress-hover-tip {
-    bottom: calc(100% + 6px);
-    background: rgba(20, 20, 24, 0.92);
+    bottom: calc(100% + 8px);
+    background: transparent;
     color: #fff;
-    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.4);
+    padding: 0;
+    box-shadow: none;
+    opacity: 1;
+    text-shadow: 0 1px 4px rgba(0, 0, 0, 0.75), 0 0 2px rgba(0, 0, 0, 0.6);
   }
 }
 
@@ -2659,8 +2729,11 @@ export default {
 .imm-side ::v-deep .button-icon {
   margin: 0;
 }
-// 倍速文字键浅色
+// 倍速文字键：浅色 + 统一 36px 宽(去 bar 的 56px)。让左组(倍速/列表/睡眠)与右组(标记/收藏/音量)
+//   6 个键全部 36px 等宽 → 两组宽度相等 → 各自贴边时到三大金刚的内侧空白自动相等(修批注「gap2 偏宽」)。
 .immersive .rate-button {
+  width: 36px;
+  padding: 4px 0;
   color: rgba(255, 255, 255, 0.85);
   &:hover {
     background: rgba(255, 255, 255, 0.12);
@@ -2677,9 +2750,11 @@ export default {
 .imm-like.favorited ::v-deep .svg-icon {
   color: #e74c3c;
 }
-// 标记键：浅色 + hover 底；尺寸/充能圈/彩蛋复用 .mark-control，仅去默认左右 margin(间距交给组 gap)
+// 标记键：浅色 + hover 底；充能圈/彩蛋复用 .mark-control，去默认左右 margin、统一 36×36(与其余 5 键等宽)
 .imm-mark {
   margin: 0;
+  width: 36px;
+  height: 36px;
   color: rgba(255, 255, 255, 0.85);
   &:hover {
     background: rgba(255, 255, 255, 0.12);
@@ -2689,10 +2764,62 @@ export default {
     height: 20px;
   }
 }
-// 音量单图标：仅图标(点静音/滚轮调)，不常驻进度条
-.imm-vol {
+// 音量：点击弹出滑条弹窗(沉浸页专用，区别于 bar 常驻滑条)
+.vol-control {
+  position: relative;
   display: flex;
   align-items: center;
+}
+.vol-menu {
+  position: absolute;
+  bottom: calc(100% + 12px);
+  left: 50%;
+  transform: translateX(-50%);
+  background: var(--color-body-bg);
+  border-radius: 10px;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.18),
+    0 0 0 1px rgba(127, 127, 127, 0.12);
+  padding: 13px 14px;
+  width: 220px;
+  z-index: 110;
+  color: var(--color-text);
+}
+// 形状对齐睡眠弹窗：label 一行 + 滑条独占一行(.vol-track flex 撑满，绕开 vue-slider width:auto 塌缩)
+.vol-slider {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 8px;
+  .v-label {
+    font-size: 12px;
+    font-weight: 600;
+    opacity: 0.7;
+    white-space: nowrap;
+    font-variant-numeric: tabular-nums;
+  }
+  .vol-track {
+    position: relative;
+    width: 100%;
+    display: flex;
+    align-items: center;
+    min-height: 20px;
+  }
+  .vol-track .vue-slider {
+    flex: 1;
+  }
+  ::v-deep .vue-slider-rail {
+    background-color: rgba(128, 128, 128, 0.5);
+    border-radius: 4px;
+  }
+  ::v-deep .vue-slider-process {
+    background-color: var(--color-primary);
+    border-radius: 4px;
+  }
+  ::v-deep .vue-slider-dot-handle {
+    visibility: visible;
+    background-color: var(--color-primary);
+    box-shadow: 0 1px 4px rgba(0, 0, 0, 0.35);
+  }
 }
 // 三大金刚：无圆圈、播放键更大、居中、组内稍疏
 .imm-king {
