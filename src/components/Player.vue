@@ -501,6 +501,28 @@
                 :lazy="true"
                 :silent="true"
               ></vue-slider>
+              <!-- [修] 与 bar 进度条表现一致：加载缓冲条 + 标记刻度(封面主色) + hover 标记键时的「标记此刻」 -->
+              <div
+                v-if="audioBuffering"
+                class="buffering-bar"
+                :style="{ left: bufferingLeftPercent + '%' }"
+              ></div>
+              <div
+                v-for="(mk, i) in currentMarks"
+                :key="'immk' + i"
+                class="prog-mark"
+                :style="{ left: markPct(mk) + '%', background: markColor }"
+              ></div>
+              <div
+                v-if="markHovering"
+                class="mark-hint-tip"
+                :style="{
+                  left:
+                    'clamp(28px, ' + progressPercent + '%, calc(100% - 28px))',
+                }"
+              >
+                标记此刻
+              </div>
               <div
                 v-if="hoverTime !== null"
                 class="progress-hover-tip"
@@ -700,6 +722,7 @@
                       : null
                   "
                   @click.stop
+                  @mouseenter="markHovering = true"
                   @mousedown.stop="onMarkPressStart"
                   @mouseup="onMarkPressEnd"
                   @mouseleave="onMarkLeave"
@@ -1046,10 +1069,15 @@ export default {
     // [B-75] 清理标记长按/pulse 计时器
     clearTimeout(this._markTimer);
     clearTimeout(this._markPulseTimer);
-    // [沉浸式播放页 P0] 卸载时若沉浸页还开着，恢复全局滚动 + 关队列/音量面板监听(防泄漏)
+    // [沉浸式播放页 P0] 卸载时若沉浸页还开着，恢复全局滚动 + 关队列/音量面板监听(防泄漏) + 清 body 标记
     this.closeQueuePanel();
     this.closeVolMenu();
-    if (this.immersiveOpen) this.$store.commit('enableScrolling', true);
+    if (this.immersiveOpen) {
+      this.$store.commit('enableScrolling', true);
+      if (typeof document !== 'undefined') {
+        document.body.classList.remove('immersive-open');
+      }
+    }
   },
   methods: {
     ...mapMutations(['toggleLyrics']),
@@ -1660,11 +1688,18 @@ export default {
       this.refreshImmPalette(this.coverSrc); // 进入时取一次背景三色
       // 锁主区滚动(与歌词页一致)，overlay 之下不再误滚
       this.$store.commit('enableScrolling', false);
+      // [修] 给 body 打标记 → 全局 Toast 在沉浸页里下移，避开居中的控制区(详见 Toast.vue)
+      if (typeof document !== 'undefined') {
+        document.body.classList.add('immersive-open');
+      }
     },
     closeImmersive() {
       if (!this.immersiveOpen) return;
       this.immersiveOpen = false;
       this.$store.commit('enableScrolling', true);
+      if (typeof document !== 'undefined') {
+        document.body.classList.remove('immersive-open');
+      }
       // 顺手收起可能开着的功能面板，避免下次进来残留
       this.closeRateMenu();
       this.closeSleepMenu();

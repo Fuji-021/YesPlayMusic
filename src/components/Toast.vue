@@ -35,6 +35,13 @@ export default {
   z-index: 1010;
 }
 
+// [沉浸式播放页] 沉浸页打开时(body.immersive-open)，控制区在垂直居中位置，默认 bottom:64px 的
+//   toast 会与之重叠。此时把 toast 下移到更靠近屏幕底部(仍水平居中)，避开控制区、不遮挡。
+//   普通视图(无该类)位置不变，仍贴在播放 bar 之上。
+body.immersive-open .toast {
+  bottom: 24px;
+}
+
 [data-theme='dark'] {
   .toast {
     background: rgba(46, 46, 46, 0.82);
