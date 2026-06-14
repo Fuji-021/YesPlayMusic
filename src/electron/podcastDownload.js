@@ -248,4 +248,83 @@ export function registerPodcastDownloadIpc(getWindow) {
     if (!filePath) return { ok: false, exists: false };
     return { ok: true, exists: fs.existsSync(filePath) };
   });
+
+  // [事故恢复] 下载重挂：清库后下载记录丢失但音频文件还在磁盘(孤儿)。
+  //   按与下载端完全相同的命名规则 podcastHashOf(feedUrl)/safeFileName(guid) 反查磁盘文件，
+  //   返回匹配到的 { id, podcastId, filePath, bytesTotal }，由渲染端写回 episodeDownloads。
+  //   episode.id 格式 = `${feedUrl}::${guid}`，feedUrl/guid 由 id 解析(零偏差)。
+  ipcMain.handle('podcast:download:relink', async (_e, episodes = []) => {
+    const base = getPodcastsDir();
+    const matched = [];
+    for (let i = 0; i < episodes.length; i++) {
+      const ep = episodes[i];
+      if (!ep || !ep.id) continue;
+      const idx = ep.id.indexOf('::');
+      if (idx <= 0) continue;
+      const feedUrl = ep.id.slice(0, idx);
+      const guid = ep.id.slice(idx + 2);
+      const dir = path.join(base, podcastHashOf(feedUrl));
+      if (!fs.existsSync(dir)) continue;
+      const prefix = safeFileName(guid);
+      let files;
+      try {
+        files = fs.readdirSync(dir);
+      } catch (e) {
+        continue;
+      }
+      const hit = files.find(n => n.indexOf(prefix) === 0);
+      if (!hit) continue;
+      const fp = path.join(dir, hit);
+      let size = 0;
+      try {
+        size = fs.statSync(fp).size;
+      } catch (e) {
+        size = 0;
+      }
+      matched.push({
+        id: ep.id,
+        podcastId: ep.podcastId,
+        filePath: fp,
+        bytesTotal: size,
+      });
+    }
+    return { ok: true, matched };
+  });
+
+  // [事故恢复·加固] 本地数据备份：把渲染端导出的全表 JSON + 订阅 OPML 落盘到
+  //   userData\backups\，保留最近 10 份。app 的 Dexie 数据此前无任何备份机制，
+  //   是本次清库不可恢复的根本缺口。
+  ipcMain.handle('podcast:backup:write', async (_e, { json, opml } = {}) => {
+    try {
+      const dir = path.join(app.getPath('userData'), 'backups');
+      if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
+      const stamp = new Date().toISOString().replace(/[:.]/g, '-');
+      if (json)
+        fs.writeFileSync(path.join(dir, `podplayer-${stamp}.json`), json);
+      if (opml)
+        fs.writeFileSync(path.join(dir, `podplayer-${stamp}.opml`), opml);
+      ['.json', '.opml'].forEach(ext => {
+        let list;
+        try {
+          list = fs
+            .readdirSync(dir)
+            .filter(n => n.endsWith(ext))
+            .sort();
+        } catch (e) {
+          list = [];
+        }
+        while (list.length > 10) {
+          const old = list.shift();
+          try {
+            fs.unlinkSync(path.join(dir, old));
+          } catch (e) {
+            // ignore
+          }
+        }
+      });
+      return { ok: true, dir };
+    } catch (e) {
+      return { ok: false, error: String((e && e.message) || e) };
+    }
+  });
 }

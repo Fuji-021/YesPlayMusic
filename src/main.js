@@ -15,7 +15,17 @@ import '@/assets/css/nprogress.css';
 import PodImage from '@/components/PodImage.vue';
 Vue.component('PodImage', PodImage);
 
+// [事故加固] resetApp() 会 deleteDatabase 清空全部本地数据(订阅/进度/统计/收藏)。
+//   2026-06-12 疑似被误触 → 不可恢复的清库。改为：① 必须显式 confirm；② 不再在
+//   console 显眼广告它(去掉吸引误触的彩色提示)。仅作最后的人工自救手段保留。
 window.resetApp = () => {
+  const ok =
+    typeof window.confirm === 'function'
+      ? window.confirm(
+          '⚠️ 确定要清空所有本地数据吗？\n订阅、收听进度、统计、收藏将被全部删除且不可恢复！'
+        )
+      : false;
+  if (!ok) return '已取消，未做任何更改。';
   localStorage.clear();
   indexedDB.deleteDatabase('yesplaymusic');
   document.cookie.split(';').forEach(function (c) {
@@ -25,11 +35,6 @@ window.resetApp = () => {
   });
   return '已重置应用，请刷新页面（按Ctrl/Command + R）';
 };
-console.log(
-  '如出现问题，可尝试在本页输入 %cresetApp()%c 然后按回车重置应用。',
-  'background: #eaeffd;color:#335eea;padding: 4px 6px;border-radius:3px;',
-  'background:unset;color:unset;'
-);
 
 Vue.use(
   VueGtag,
@@ -89,6 +94,16 @@ loadAllDownloads()
     );
   })
   .catch(() => {});
+
+// [事故加固] 启动数据自动备份调度（30s 后首次 + 每 6 小时；空库自动跳过，
+//   绝不用空数据覆盖历史好备份；落盘 userData\backups\，保留最近 10 份）。
+import { startBackupSchedule } from '@/utils/podcast/backup';
+startBackupSchedule();
+
+// [事故恢复] 暴露下载重挂（安全/幂等/仅新增）：清库后用 OPML 重订阅，再在控制台
+//   运行一次 relinkDownloads() 即可把磁盘上残留的下载文件挂回、无需重下。
+import { relinkDownloads } from '@/utils/podcast/downloads';
+window.relinkDownloads = relinkDownloads;
 
 // [NAS] 启动时初始化 NAS 音源熔断器（读配置：未启用则 no-op；启用则探活 + 起心跳）。
 //   失败静默，绝不影响启动与既有播放。配置已由设置页 NAS 区块接管(window.podNas 临时入口已移除)。

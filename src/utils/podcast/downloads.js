@@ -296,3 +296,38 @@ export async function getDownloadingEpisodes() {
   }
   return result;
 }
+
+// [事故恢复] 下载重挂：清库后订阅可用 OPML 重灌，但 episodeDownloads 记录丢失 →
+//   磁盘上 3GB 下载文件变"孤儿"。重订阅后调用本函数：主进程按下载端同款命名
+//   (sha1(feedUrl)[:12]/sha1(guid)[:16]) 反查磁盘文件，匹配到的写回 episodeDownloads，
+//   下载即"复活"、无需重下。幂等：已存在 done 记录的跳过。
+export async function relinkDownloads() {
+  if (!ipcRenderer) return { ok: false, relinked: 0 };
+  const eps = await db.episodes.toArray();
+  const res = await ipcRenderer.invoke(
+    'podcast:download:relink',
+    eps.map(e => ({ id: e.id, podcastId: e.podcastId }))
+  );
+  if (!res || !res.ok) return { ok: false, relinked: 0 };
+  let relinked = 0;
+  for (const m of res.matched) {
+    const existed = await db.episodeDownloads.get(m.id);
+    if (existed && existed.status === 'done') continue;
+    await db.episodeDownloads.put({
+      id: m.id,
+      podcastId: m.podcastId,
+      filePath: m.filePath,
+      bytesTotal: m.bytesTotal || 0,
+      status: 'done',
+      addedAt: Date.now(),
+    });
+    store.commit('addDownloadedEpisode', { id: m.id, filePath: m.filePath });
+    relinked++;
+  }
+  return {
+    ok: true,
+    relinked,
+    scanned: eps.length,
+    matched: res.matched.length,
+  };
+}
